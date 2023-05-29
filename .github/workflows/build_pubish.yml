@@ -17,26 +17,20 @@ jobs:
     steps:
       - name: Checkout Avni Server Repository
         uses: actions/checkout@v3
-        with:
-          path: avni-server
-      
-      - name: Checkout Avni WebApp Repository
-        uses: actions/checkout@v3
-        with:
-          repository: avniproject/avni-webapp
-          path: avni-webapp
-
       - name: Setup Java 8
         uses: actions/setup-java@v3
         with:
           distribution: 'corretto'
           java-version: '8'
       - name: Build and Package Avni Server
-        run:
-          cd avni-server && ./gradlew clean build -x test
-      - name: Build and Package Avni Webapp
-        run:
-          cd avni-webapp && yarn install && yarn build
+        run: ./gradlew clean build -x test
+      - name: Download and extract Avni Webapp
+        run: |
+          mkdir avni-webapp-build
+          curl -L -o avni-webapp.zip https://output.circle-artifacts.com/output/job/10acc1ad-94b7-4669-bb92-99a414503789/artifacts/0/~/artifacts/openchs-webapp.zip
+          unzip -d avni-webapp-build avni-webapp.zip
+          rm -rf avni-webapp.zip
+          
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       - name: Set up Docker Buildx
@@ -50,7 +44,6 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: .
-          file: avni-server/package/docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: bahmni/avni-server:latest
