@@ -36,7 +36,7 @@ jobs:
           cd avni-server && ./gradlew clean build -x test
       - name: Build and Package Avni Webapp
         run:
-          cd avni-webapp && yarn install --frozen-lockfile && yarn build
+          cd avni-webapp && yarn install && yarn build
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       - name: Set up Docker Buildx
