@@ -5,6 +5,7 @@ import org.avni.server.application.FormElement;
 import org.avni.server.application.FormType;
 import org.avni.server.application.TestFormElementBuilder;
 import org.avni.server.dao.EncounterRepository;
+import org.avni.server.dao.ProgramEncounterRepository;
 import org.avni.server.domain.Concept;
 import org.avni.server.domain.ConceptDataType;
 import org.avni.server.domain.factory.metadata.ConceptBuilder;
@@ -18,8 +19,7 @@ import org.mockito.Mock;
 
 import java.util.*;
 
-import static org.avni.server.exporter.v2.LongitudinalExportRequestFieldNameConstants.FIRST_NAME;
-import static org.avni.server.exporter.v2.LongitudinalExportRequestFieldNameConstants.UUID;
+import static org.avni.server.exporter.v2.LongitudinalExportRequestFieldNameConstants.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,26 +32,92 @@ public class ExportFieldsManagerTest {
     private FormMappingService formMappingService;
     @Mock
     private EncounterRepository encounterRepository;
+    @Mock
+    private ProgramEncounterRepository programEncounterRepository;
     private ExportFieldsManager exportFieldsManager;
 
     @Before
     public void setup() {
         initMocks(this);
-        exportFieldsManager = new ExportFieldsManager(formMappingService, encounterRepository, TimeZone.getDefault().getDisplayName());
+        exportFieldsManager = new ExportFieldsManager(formMappingService, encounterRepository, programEncounterRepository, TimeZone.getDefault().getDisplayName());
     }
 
     @Test
-    public void shouldAddAllStaticHeadersIfNoFieldsIsPassed() {
-        when(formMappingService.getAllFormElementsAndDecisionMap(any(), eq(null), eq(null), eq(FormType.IndividualProfile))).thenReturn(new LinkedHashMap<>());
-        when(formMappingService.findForSubject(any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
-        ExportEntityType exportEntityType = new ExportEntityTypeBuilder().withUuid("a").build();
+    public void shouldAddAllStaticHeadersIfNoRegistrationFieldsArePassed() {
+        ExportEntityType exportEntityType = givenNoStaticHeaders(FormType.IndividualProfile);
         exportFieldsManager.visitSubject(exportEntityType);
-        List<String> coreFields = exportFieldsManager.getCoreFields(exportEntityType);
-        assertTrue(coreFields.contains(FIRST_NAME));
+        verifyStaticHeader(exportEntityType, FIRST_NAME);
     }
 
     @Test
-    public void shouldAddQuestionGroupFormElement() {
+    public void shouldAddAllStaticHeadersIfNoEncounterFieldsArePassed() {
+        ExportEntityType exportEntityType = givenNoStaticHeaders(FormType.Encounter);
+        exportFieldsManager.visitEncounter(exportEntityType, new ExportEntityTypeBuilder().withUuid("st1").build());
+        verifyStaticHeader(exportEntityType, ENCOUNTER_DATE_TIME);
+    }
+
+    @Test
+    public void shouldAddAllStaticHeadersIfNoProgramEnrolmentFieldsArePassed() {
+        ExportEntityType exportEntityType = givenNoStaticHeaders(FormType.ProgramEnrolment);
+        exportFieldsManager.visitProgram(exportEntityType, new ExportEntityTypeBuilder().withUuid("st1").build());
+        verifyStaticHeader(exportEntityType, ENROLMENT_DATE_TIME);
+    }
+
+    @Test
+    public void shouldAddAllStaticHeadersIfNoProgramEncounterFieldsArePassed() {
+        ExportEntityType exportEntityType = givenNoStaticHeaders(FormType.ProgramEncounter);
+        exportFieldsManager.visitProgramEncounter(exportEntityType, new ExportEntityTypeBuilder().withUuid("p1").build(), new ExportEntityTypeBuilder().withUuid("st1").build());
+        verifyStaticHeader(exportEntityType, ENCOUNTER_DATE_TIME);
+    }
+
+    private void verifyStaticHeader(ExportEntityType exportEntityType, String fieldName) {
+        List<String> coreFields = exportFieldsManager.getCoreFields(exportEntityType);
+        assertTrue(coreFields.contains(fieldName));
+    }
+
+    private ExportEntityType givenNoStaticHeaders(FormType formType) {
+        when(formMappingService.getAllFormElementsAndDecisionMap(any(), eq(null), eq(null), eq(formType))).thenReturn(new LinkedHashMap<>());
+        when(formMappingService.findForSubject(any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
+        when(formMappingService.findForEncounter(any(), any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
+        when(formMappingService.findForProgram(any(), any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
+        return new ExportEntityTypeBuilder().withUuid("a").build();
+    }
+
+    @Test
+    public void shouldAddQuestionGroupFormElementForSubject() {
+        LinkedHashMap<String, FormElement> formElements = givenQuestionGroupFormElement();
+        ExportEntityType exportEntityType = new ExportEntityTypeBuilder().withUuid("st1").withFields(Collections.singletonList(UUID)).build();
+        when(formMappingService.getAllFormElementsAndDecisionMap(eq(exportEntityType.getUuid()), eq(null), eq(null), eq(FormType.IndividualProfile))).thenReturn(formElements);
+        exportFieldsManager.visitSubject(exportEntityType);
+        verifyMainFields(exportEntityType);
+    }
+
+    @Test
+    public void shouldAddQuestionGroupFormElementForEncounter() {
+        LinkedHashMap<String, FormElement> formElements = givenQuestionGroupFormElement();
+        ExportEntityType exportEntityType = new ExportEntityTypeBuilder().withUuid("et1").withFields(Collections.singletonList(UUID)).build();
+        ExportEntityType subjectExportEntityType = new ExportEntityTypeBuilder().withUuid("st1").build();
+        when(formMappingService.getAllFormElementsAndDecisionMap(eq(subjectExportEntityType.getUuid()), eq(null), eq(exportEntityType.getUuid()), eq(FormType.Encounter))).thenReturn(formElements);
+        exportFieldsManager.visitEncounter(exportEntityType, subjectExportEntityType);
+        verifyMainFields(exportEntityType);
+    }
+
+    @Test
+    public void groupByQuestionGroup() {
+        FormElement qgFE = new TestFormElementBuilder().withId(4).build();
+        FormElement formElement1 = new TestFormElementBuilder().withQuestionGroupElement(qgFE).withId(1).build();
+        FormElement formElement2 = new TestFormElementBuilder().withQuestionGroupElement(qgFE).withId(2).build();
+        FormElement formElement3 = new TestFormElementBuilder().withQuestionGroupElement(qgFE).withId(3).build();
+        Map<FormElement, List<FormElement>> formElementListMap = ExportFieldsManager.groupByQuestionGroup(Arrays.asList(formElement1, formElement2, formElement3));
+        assertEquals(3, formElementListMap.get(qgFE).size());
+    }
+
+    private void verifyMainFields(ExportEntityType exportEntityType) {
+        Map<String, FormElement> mainFields = exportFieldsManager.getMainFields(exportEntityType);
+        assertEquals(2, mainFields.size());
+    }
+
+    private LinkedHashMap<String, FormElement> givenQuestionGroupFormElement() {
         Concept c1 = new ConceptBuilder().withUuid("c1").withDataType(ConceptDataType.Text).build();
         Concept c2 = new ConceptBuilder().withUuid("c2").withDataType(ConceptDataType.QuestionGroup).build();
         FormElement groupFormElement = new TestFormElementBuilder().withConcept(c2).build();
@@ -61,12 +127,9 @@ public class ExportFieldsManagerTest {
             put("f2", groupFormElement);
         }};
 
-        when(formMappingService.getAllFormElementsAndDecisionMap(any(), eq(null), eq(null), eq(FormType.IndividualProfile))).thenReturn(formElements);
         when(formMappingService.findForSubject(any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
-
-        ExportEntityType exportEntityType = new ExportEntityTypeBuilder().withUuid("st1").withFields(Collections.singletonList(UUID)).build();
-        exportFieldsManager.visitSubject(exportEntityType);
-        Map<String, FormElement> mainFields = exportFieldsManager.getMainFields(exportEntityType);
-        assertEquals(2, mainFields.size());
+        when(formMappingService.findForEncounter(any(), any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
+        when(formMappingService.findForProgram(any(), any())).thenReturn(new FormMappingBuilder().withForm(new Form()).build());
+        return formElements;
     }
 }

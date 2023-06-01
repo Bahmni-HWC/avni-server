@@ -11,6 +11,7 @@ import org.avni.server.service.FormMappingService;
 import org.avni.server.service.ObservationService;
 import org.avni.server.util.DateTimeUtil;
 import org.avni.server.web.external.request.export.ExportEntityType;
+import org.avni.server.web.external.request.export.ExportFilters;
 import org.avni.server.web.external.request.export.ExportOutput;
 import org.joda.time.DateTime;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -40,55 +41,55 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
     private final FormMappingService formMappingService;
     private final SubjectTypeRepository subjectTypeRepository;
     private final String exportJobParamsUUID;
-    private final String timeZone;
+    private String timeZone;
     private final AddressLevelService addressLevelService;
     private final ProgramRepository programRepository;
     private final EncounterTypeRepository encounterTypeRepository;
     private final ExportJobService exportJobService;
-    private ObservationService observationService;
+    private final ObservationService observationService;
     private HeaderCreator headerCreator;
     private ExportOutput exportOutput;
     private List<String> addressLevelTypes = new ArrayList<>();
     private ExportFieldsManager exportFieldsManager;
-
+    private Map<FormElement, Integer> maxNumberOfQuestionGroupObservations;
 
     @Autowired
-    public ExportV2CSVFieldExtractor(ExportJobParametersRepository exportJobParametersRepository,
-                                     EncounterRepository encounterRepository,
+    public ExportV2CSVFieldExtractor(EncounterRepository encounterRepository,
                                      ProgramEncounterRepository programEncounterRepository,
                                      FormMappingService formMappingService,
                                      @Value("#{jobParameters['exportJobParamsUUID']}") String exportJobParamsUUID,
-                                     @Value("#{jobParameters['timeZone']}") String timeZone,
                                      SubjectTypeRepository subjectTypeRepository,
                                      AddressLevelService addressLevelService,
                                      ProgramRepository programRepository,
                                      EncounterTypeRepository encounterTypeRepository,
                                      ExportJobService exportJobService,
-                                     ObservationService observationService) {
-        this.exportJobParametersRepository = exportJobParametersRepository;
+                                     ObservationService observationService,
+                                     ExportJobParametersRepository exportJobParametersRepository) {
         this.encounterRepository = encounterRepository;
         this.programEncounterRepository = programEncounterRepository;
         this.formMappingService = formMappingService;
         this.exportJobParamsUUID = exportJobParamsUUID;
-        this.timeZone = timeZone;
         this.subjectTypeRepository = subjectTypeRepository;
         this.addressLevelService = addressLevelService;
         this.programRepository = programRepository;
         this.encounterTypeRepository = encounterTypeRepository;
         this.exportJobService = exportJobService;
         this.observationService = observationService;
+        this.exportJobParametersRepository = exportJobParametersRepository;
     }
 
     @PostConstruct
     public void init() {
         this.addressLevelTypes = addressLevelService.getAllAddressLevelTypeNames();
+        ExportJobParameters exportJobParameters = exportJobParametersRepository.findByUuid(exportJobParamsUUID);
+        this.timeZone = exportJobParameters.getTimezone();
         exportOutput = exportJobService.getExportOutput(exportJobParamsUUID);
-        exportFieldsManager = new ExportFieldsManager(formMappingService, encounterRepository, timeZone);
-        List<Form> formsInvolved = exportFieldsManager.getAllForms();
-        Map<FormElement, Integer> maxNumberOfQuestionGroupObservations = observationService.getMaxNumberOfQuestionGroupObservations(formsInvolved);
-        this.headerCreator = new HeaderCreator(subjectTypeRepository, formMappingService, addressLevelTypes, maxNumberOfQuestionGroupObservations,
-                encounterTypeRepository, exportFieldsManager, programRepository);
+        exportFieldsManager = new ExportFieldsManager(formMappingService, encounterRepository, programEncounterRepository, timeZone);
         exportOutput.accept(exportFieldsManager);
+        Map<Form, ExportFilters> formFilters = exportFieldsManager.getAllFormFilters();
+        maxNumberOfQuestionGroupObservations = observationService.getMaxNumberOfQuestionGroupObservations(formFilters, timeZone);
+        this.headerCreator = new HeaderCreator(subjectTypeRepository, addressLevelTypes, maxNumberOfQuestionGroupObservations,
+                encounterTypeRepository, exportFieldsManager, programRepository);
     }
 
     @Override
@@ -171,7 +172,7 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
         if (individual.getSubjectType().isGroup()) {
             columnsData.add(getTotalMembers(individual));
         }
-        columnsData.addAll(getObs(individual.getObservations(), registrationMap));
+        columnsData.addAll(addObservations(individual.getObservations(), registrationMap));
     }
 
     private void addStaticRegistrationColumns(List<Object> columnsData, Individual individual,
@@ -185,8 +186,8 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
                                      Map<String, FormElement> exitEnrolmentMap,
                                      ExportOutput.ExportNestedOutput program) {
         addStaticEnrolmentColumns(program, columnsData, programEnrolment, HeaderCreator.enrolmentDataMap);
-        columnsData.addAll(getObs(programEnrolment.getObservations(), enrolmentMap));
-        columnsData.addAll(getObs(programEnrolment.getObservations(), exitEnrolmentMap));
+        columnsData.addAll(addObservations(programEnrolment.getObservations(), enrolmentMap));
+        columnsData.addAll(addObservations(programEnrolment.getObservations(), exitEnrolmentMap));
     }
 
     private <T extends AbstractEncounter> void addEncounterColumns(Long maxVisitCount, List<Object> columnsData, List<T> encounters,
@@ -194,8 +195,8 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
         AtomicInteger counter = new AtomicInteger(0);
         encounters.forEach(encounter -> {
             appendStaticEncounterColumns(encounterEntityType, columnsData, encounter, HeaderCreator.encounterDataMap);
-            columnsData.addAll(getObs(encounter.getObservations(), map));
-            columnsData.addAll(getObs(encounter.getObservations(), cancelMap));
+            columnsData.addAll(addObservations(encounter.getObservations(), map));
+            columnsData.addAll(addObservations(encounter.getObservations(), cancelMap));
             counter.getAndIncrement();
         });
         int visit = counter.get();
@@ -206,13 +207,13 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
 
     private void addStaticEnrolmentColumns(ExportOutput.ExportNestedOutput program, List<Object> columnsData, ProgramEnrolment programEnrolment,
                                            Map<String, HeaderNameAndFunctionMapper<ProgramEnrolment>> enrolmentDataMap) {
-        program.getFields().stream().filter(enrolmentDataMap::containsKey)
+        exportFieldsManager.getCoreFields(program).stream().filter(enrolmentDataMap::containsKey)
                 .forEach(key -> columnsData.add(enrolmentDataMap.get(key).getValueFunction().apply(programEnrolment)));
     }
 
     private void appendStaticEncounterColumns(ExportEntityType encounterEntityType, List<Object> columnsData, AbstractEncounter encounter,
                                               Map<String, HeaderNameAndFunctionMapper<AbstractEncounter>> encounterDataMap) {
-        encounterEntityType.getFields().stream().filter(encounterDataMap::containsKey)
+        exportFieldsManager.getCoreFields(encounterEntityType).stream().filter(encounterDataMap::containsKey)
                 .forEach(key -> columnsData.add(encounterDataMap.get(key).getValueFunction().apply(encounter)));
     }
 
@@ -223,10 +224,11 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
                 .count();
     }
 
-    private List<Object> getObs(ObservationCollection observations, Map<String, FormElement> obsMap) {
+    private List<Object> addObservations(ObservationCollection observations, Map<String, FormElement> obsMap) {
         List<Object> values = new ArrayList<>(obsMap.size());
         obsMap.forEach((conceptUUID, formElement) -> {
-            if (ConceptDataType.isGroupQuestion(formElement.getConcept().getDataType())) return;
+            if (formElement.isPartOfRepeatableQuestionGroup() || formElement.isQuestionGroupElement()) return;
+
             Object val;
             if (formElement.getGroup() != null) {
                 Concept parentConcept = formElement.getGroup().getConcept();
@@ -235,18 +237,48 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
             } else {
                 val = observations == null ? null : observations.getOrDefault(conceptUUID, null);
             }
-            String dataType = formElement.getConcept().getDataType();
-            if (dataType.equals(ConceptDataType.Coded.toString())) {
-                values.addAll(processCodedObs(formElement.getType(), val, formElement));
-            } else if (dataType.equals(ConceptDataType.DateTime.toString()) || dataType.equals(ConceptDataType.Date.toString())) {
-                values.add(processDateObs(val));
-            } else if (ConceptDataType.isMedia(dataType)) {
-                values.add(processMediaObs(val));
-            } else {
-                values.add(headerCreator.quotedStringValue(String.valueOf(Optional.ofNullable(val).orElse(""))));
+
+            addObservation(values, formElement, val);
+        });
+
+        List<FormElement> observationsRepeatedMultipleTimes = obsMap.values().stream()
+                .filter(FormElement::isPartOfRepeatableQuestionGroup)
+                .collect(Collectors.toList());
+        Map<FormElement, List<FormElement>> repeatedFormElements = ExportFieldsManager.groupByQuestionGroup(observationsRepeatedMultipleTimes);
+        repeatedFormElements.forEach((group, formElements) -> {
+            Integer maxRepeats = maxNumberOfQuestionGroupObservations.get(group);
+            Concept questionGroupConcept = group.getConcept();
+            List<Map<String, Object>> repeatableObservations;
+            if (observations == null) repeatableObservations = new ArrayList<>();
+            else {
+                repeatableObservations = (List<Map<String, Object>>) observations.getOrDefault(questionGroupConcept.getUuid(), new ArrayList<>());
+            }
+            for (int i = 0; i < maxRepeats; i++) {
+                if (repeatableObservations.size() > i) {
+                    Map<String, Object> observationsItem = repeatableObservations.get(i);
+                    for (FormElement formElement : formElements) {
+                        Object val = observationsItem.getOrDefault(formElement.getConcept().getUuid(), null);
+                        addObservation(values, formElement, val);
+                    }
+                } else {
+                    formElements.forEach(formElement -> values.add(""));
+                }
             }
         });
         return values;
+    }
+
+    private void addObservation(List<Object> values, FormElement formElement, Object val) {
+        String dataType = formElement.getConcept().getDataType();
+        if (dataType.equals(ConceptDataType.Coded.toString())) {
+            values.addAll(processCodedObs(formElement.getType(), val, formElement));
+        } else if (dataType.equals(ConceptDataType.DateTime.toString()) || dataType.equals(ConceptDataType.Date.toString())) {
+            values.add(processDateObs(val));
+        } else if (ConceptDataType.isMedia(dataType)) {
+            values.add(processMediaObs(val));
+        } else {
+            values.add(getFieldValue(String.valueOf(Optional.ofNullable(val).orElse(""))));
+        }
     }
 
     private Object processDateObs(Object val) {
@@ -273,13 +305,17 @@ public class ExportV2CSVFieldExtractor implements FieldExtractor<LongitudinalExp
 
     private String processMediaObs(Object val) {
         List<String> imageURIs = getObservationValueList(val).stream().map(t -> (String) t).collect(Collectors.toList());
-        return headerCreator.quotedStringValue(String.join(",", imageURIs));
+        return getFieldValue(String.join(",", imageURIs));
+    }
+
+    private String getFieldValue(String value) {
+        return String.format("\"%s\"", value);
     }
 
     private String getAnsName(Concept concept, Object val) {
         return concept.getSortedAnswers()
                 .filter(ca -> ca.getAnswerConcept().getUuid().equals(val))
-                .map(ca -> headerCreator.quotedStringValue(ca.getAnswerConcept().getName()))
+                .map(ca -> getFieldValue(ca.getAnswerConcept().getName()))
                 .findFirst().orElse("");
     }
 

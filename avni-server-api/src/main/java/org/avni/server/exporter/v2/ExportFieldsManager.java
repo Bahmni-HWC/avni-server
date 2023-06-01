@@ -5,6 +5,7 @@ import org.avni.server.application.FormElement;
 import org.avni.server.application.FormMapping;
 import org.avni.server.application.FormType;
 import org.avni.server.dao.EncounterRepository;
+import org.avni.server.dao.ProgramEncounterRepository;
 import org.avni.server.service.FormMappingService;
 import org.avni.server.util.DateTimeUtil;
 import org.avni.server.web.external.request.export.ExportEntityType;
@@ -17,17 +18,19 @@ import java.util.stream.Collectors;
 public class ExportFieldsManager implements ExportEntityTypeVisitor {
     private final Map<String, Map<String, FormElement>> mainFormMap = new LinkedHashMap<>();
     private final Map<String, Map<String, FormElement>> secondaryFormMap = new LinkedHashMap<>();
-    private final List<Form> forms = new ArrayList<>();
+    private final Map<Form, ExportFilters> forms = new HashMap<>();
     private final Map<String, List<String>> coreFields = new LinkedHashMap<>();
     private final Map<String, Long> maxCounts = new HashMap<>();
 
     private final FormMappingService formMappingService;
     private final EncounterRepository encounterRepository;
+    private final ProgramEncounterRepository programEncounterRepository;
     private final String timeZone;
 
-    public ExportFieldsManager(FormMappingService formMappingService, EncounterRepository encounterRepository, String timeZone) {
+    public ExportFieldsManager(FormMappingService formMappingService, EncounterRepository encounterRepository, ProgramEncounterRepository programEncounterRepository, String timeZone) {
         this.formMappingService = formMappingService;
         this.encounterRepository = encounterRepository;
+        this.programEncounterRepository = programEncounterRepository;
         this.timeZone = timeZone;
     }
 
@@ -64,7 +67,7 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
 
     private void addSubjectTypeForm(ExportEntityType exportEntityType) {
         FormMapping formMapping = formMappingService.findForSubject(exportEntityType.getUuid());
-        forms.add(formMapping.getForm());
+        forms.put(formMapping.getForm(), exportEntityType.getFilters());
     }
 
     @Override
@@ -72,10 +75,6 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
         addEncounterTypeForm(encounter, FormType.Encounter);
         addEncounterTypeForm(encounter, FormType.IndividualEncounterCancellation);
         processEncounter(encounter, subjectExportEntityType);
-    }
-
-    private void addEncounterTypeForm(ExportEntityType encounter, FormType formType) {
-        addProgramEncounterForm(encounter, formType);
     }
 
     private void processEncounter(ExportEntityType encounter, ExportEntityType subjectExportEntityType) {
@@ -88,7 +87,6 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
 
         ExportFilters.DateFilter dateFilter = encounter.getFilters().getDate();
         Long maxEncounterCount = encounterRepository.getMaxEncounterCount(encounter.getUuid(), DateTimeUtil.getCalendarTime(dateFilter.getFrom(), timeZone), DateTimeUtil.getCalendarTime(dateFilter.getTo(), timeZone));
-        maxEncounterCount = maxEncounterCount == null ? 1 : maxEncounterCount;
         maxCounts.put(encounter.getUuid(), maxEncounterCount);
     }
 
@@ -123,13 +121,13 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
 
     private void addProgramForm(ExportEntityType program, FormType formType) {
         FormMapping formMapping = formMappingService.findForProgram(program.getUuid(), formType);
-        forms.add(formMapping.getForm());
+        forms.put(formMapping.getForm(), program.getFilters());
     }
 
     @Override
     public void visitProgramEncounter(ExportEntityType encounterType, ExportEntityType program, ExportEntityType subject) {
-        addProgramEncounterForm(encounterType, FormType.ProgramEncounter);
-        addProgramEncounterForm(encounterType, FormType.ProgramExit);
+        addEncounterTypeForm(encounterType, FormType.ProgramEncounter);
+        addEncounterTypeForm(encounterType, FormType.ProgramEncounterCancellation);
 
         this.setCoreFields(HeaderCreator.getEncounterCoreFields(), encounterType);
         LinkedHashMap<String, FormElement> encounterFormElements = formMappingService.getAllFormElementsAndDecisionMap(subject.getUuid(), program.getUuid(), encounterType.getUuid(), FormType.ProgramEncounter);
@@ -137,11 +135,15 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
 
         LinkedHashMap<String, FormElement> encounterCancelFormElements = formMappingService.getAllFormElementsAndDecisionMap(subject.getUuid(), program.getUuid(), encounterType.getUuid(), FormType.ProgramEncounterCancellation);
         secondaryFormMap.put(encounterType.getUuid(), this.getObsFields(encounterType, encounterCancelFormElements, HeaderCreator.getEncounterCoreFields()));
+
+        ExportFilters.DateFilter dateFilter = encounterType.getFilters().getDate();
+        Long maxEncounterCount = programEncounterRepository.getMaxProgramEncounterCount(encounterType.getUuid(), DateTimeUtil.getCalendarTime(dateFilter.getFrom(), timeZone), DateTimeUtil.getCalendarTime(dateFilter.getTo(), timeZone));
+        maxCounts.put(encounterType.getUuid(), maxEncounterCount);
     }
 
-    private void addProgramEncounterForm(ExportEntityType exportEntityType, FormType formType) {
+    private void addEncounterTypeForm(ExportEntityType exportEntityType, FormType formType) {
         FormMapping formMapping = formMappingService.findForEncounter(exportEntityType.getUuid(), formType);
-        forms.add(formMapping.getForm());
+        forms.put(formMapping.getForm(), exportEntityType.getFilters());
     }
 
     public long getMaxEntityCount(ExportEntityType exportEntityType) {
@@ -184,7 +186,7 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
         return (getTotalNumberOfMainColumns(exportEntityType) + getTotalNumberOfSecondaryColumns(exportEntityType));
     }
 
-    public List<Form> getAllForms() {
+    public Map<Form, ExportFilters> getAllFormFilters() {
         return forms;
     }
 
@@ -193,7 +195,7 @@ public class ExportFieldsManager implements ExportEntityTypeVisitor {
         formElements.forEach(formElement -> {
                     FormElement group = formElement.getGroup();
 
-                    if (!groupedFormElements.containsKey(formElement)) groupedFormElements.put(group, new ArrayList<>());
+                    if (!groupedFormElements.containsKey(group)) groupedFormElements.put(group, new ArrayList<>());
                     groupedFormElements.get(group).add(formElement);
                 });
         return groupedFormElements;
