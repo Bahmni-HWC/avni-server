@@ -133,7 +133,7 @@ public class OrganisationConfigService implements NonScopeAwareService {
             settings.put(String.valueOf(OrganisationConfigSettingKey.lowestAddressLevelType), locationHierarchyService.determineAddressHierarchiesToBeSaved(organisationSettings, locationConceptUuids));
             return updateOrganisationSettings(settings);
         } catch (Exception exception) {
-            exception.printStackTrace();
+            logger.error("Error updating lowest address level type setting", exception);
         }
         return null;
     }
@@ -238,6 +238,10 @@ public class OrganisationConfigService implements NonScopeAwareService {
 
     public boolean isMessagingEnabled() {
         return isFeatureEnabled(OrganisationConfigSettingKey.enableMessaging.name());
+    }
+
+    public boolean isFailOnValidationErrorEnabled() {
+        return isFeatureEnabled(OrganisationConfigSettingKey.failOnValidationError.name());
     }
 
     @Override

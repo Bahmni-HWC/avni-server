@@ -8,6 +8,7 @@ import org.avni.server.dao.application.FormMappingRepository;
 import org.avni.server.dao.application.FormRepository;
 import org.avni.server.dao.task.TaskTypeRepository;
 import org.avni.server.domain.*;
+import org.avni.server.service.accessControl.AccessControlService;
 import org.avni.server.util.BadRequestError;
 import org.avni.server.web.request.FormMappingContract;
 import org.joda.time.DateTime;
@@ -30,6 +31,7 @@ public class FormMappingService implements NonScopeAwareService {
     private final EncounterTypeRepository encounterTypeRepository;
     private final FormRepository formRepository;
     private final TaskTypeRepository taskTypeRepository;
+    private final AccessControlService accessControlService;
 
     @Autowired
     public FormMappingService(FormMappingRepository formMappingRepository,
@@ -37,13 +39,14 @@ public class FormMappingService implements NonScopeAwareService {
                               ProgramRepository programRepository,
                               SubjectTypeRepository subjectTypeRepository,
                               FormRepository formRepository,
-                              TaskTypeRepository taskTypeRepository) {
+                              TaskTypeRepository taskTypeRepository, AccessControlService accessControlService) {
         this.formMappingRepository = formMappingRepository;
         this.encounterTypeRepository = encounterTypeRepository;
         this.programRepository = programRepository;
         this.subjectTypeRepository = subjectTypeRepository;
         this.formRepository = formRepository;
         this.taskTypeRepository = taskTypeRepository;
+        this.accessControlService = accessControlService;
     }
 
     public void saveFormMapping(FormMappingParameterObject parametersForNewMapping,
@@ -102,6 +105,7 @@ public class FormMappingService implements NonScopeAwareService {
             formMapping = new FormMapping();
             formMapping.setUuid(formMappingRequest.getUuid());
         }
+        accessControlService.checkPrivilege(FormType.getPrivilegeType(form));
         formMapping.setForm(form);
 
         if (StringUtils.hasText(formMappingRequest.getProgramUUID())) {
@@ -190,11 +194,11 @@ public class FormMappingService implements NonScopeAwareService {
 
     @Transactional(readOnly = true)
     public LinkedHashMap<String, FormElement> getAllFormElementsAndDecisionMap(String subjectTypeUUID, String programUUID, String encounterTypeUUID, FormType formType) {
-        return getEntityConceptMap(formMappingRepository.getRequiredFormMapping(subjectTypeUUID, programUUID, encounterTypeUUID, formType));
+        return getEntityConceptMap(formMappingRepository.getRequiredFormMapping(subjectTypeUUID, programUUID, encounterTypeUUID, formType), false);
     }
 
-    private LinkedHashMap<String, FormElement> getEntityConceptMap(FormMapping formMapping) {
-        List<FormElement> formElements = formMapping == null ? new ArrayList<>() : formMapping.getForm().getApplicableFormElements();
+    public LinkedHashMap<String, FormElement> getEntityConceptMap(FormMapping formMapping, boolean includeVoidedFormElements) {
+        List<FormElement> formElements = formMapping == null ? new ArrayList<>() : includeVoidedFormElements ? formMapping.getForm().getAllFormElements() : formMapping.getForm().getApplicableFormElements();
         formElements.addAll(getDecisionFormElements(formMapping));
         return formElements.stream().collect(Collectors.toMap(f -> f.getConcept().getUuid(), f -> f, (a, b) -> b, LinkedHashMap::new));
     }

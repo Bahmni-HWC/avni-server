@@ -2,6 +2,7 @@ package org.avni.server.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.DynamicInsert;
 import org.hibernate.annotations.Type;
 import org.hibernate.search.annotations.Field;
@@ -20,6 +21,8 @@ import java.util.stream.Stream;
 @Table(name = "concept")
 @BatchSize(size = 100)
 @DynamicInsert
+@Cacheable
+@org.hibernate.annotations.Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
 public class Concept extends OrganisationAwareEntity {
     private static final int POSTGRES_MAX_COLUMN_NAME_LENGTH = 63;
     private static final int NUMBER_OF_CHARACTERS_TO_ACCOMMODATE_HASHCODE = 14;
@@ -39,6 +42,7 @@ public class Concept extends OrganisationAwareEntity {
     private Boolean active;
 
     @OneToMany(fetch = FetchType.LAZY, cascade = CascadeType.ALL, mappedBy = "concept")
+    @org.hibernate.annotations.Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
     private Set<ConceptAnswer> conceptAnswers = new HashSet<>();
 
     private Double lowAbsolute;
@@ -260,5 +264,13 @@ public class Concept extends OrganisationAwareEntity {
     @JsonIgnore
     public boolean isViewColumnNameTruncated() {
         return this.getName().length() > POSTGRES_MAX_COLUMN_NAME_LENGTH;
+    }
+
+    public Concept getAnswerConcept(String answerConceptName) {
+        if (!ConceptDataType.Coded.name().equals(dataType)) throw new RuntimeException("Not a coded concept");
+
+        ConceptAnswer conceptAnswer = this.conceptAnswers.stream().filter(x -> x.getAnswerConcept().getName().equals(answerConceptName)).findAny().orElse(null);
+        if (conceptAnswer == null) return null;
+        return conceptAnswer.getAnswerConcept();
     }
 }

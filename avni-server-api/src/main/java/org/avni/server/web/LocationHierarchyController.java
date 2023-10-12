@@ -16,7 +16,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.hateoas.PagedResources;
 import org.springframework.hateoas.Resource;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -51,8 +50,7 @@ public class LocationHierarchyController implements RestControllerResourceProces
                 return wrap(locationRepository.findByLastModifiedDateTimeAfterAndTypeIn(CHSEntity.toDate(lastModifiedDateTime), addressLevelTypes, pageable));
             }
         } catch (Exception exception) {
-            exception.printStackTrace();
-            logger.error(exception.getMessage());
+            logger.error("Error getting locationHierarchy", exception);
             return wrap(new PageImpl<>(Collections.emptyList()));
         }
         return wrap(new PageImpl<>(Collections.emptyList()));

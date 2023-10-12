@@ -25,7 +25,6 @@ import org.springframework.hateoas.PagedResources;
 import org.springframework.hateoas.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -108,8 +107,6 @@ public class UserInfoController implements RestControllerResourceProcessor<UserI
     }
 
     public UserInfoContract getUserInfoObject(Organisation organisation, User user) {
-        String usernameSuffix = organisation.getUsernameSuffix() != null
-                ? organisation.getUsernameSuffix() : organisation.getDbUser();
         String catchmentName = user.getCatchment() == null ? null : user.getCatchment().getName();
         List<GroupPrivilege> groupPrivileges = groupPrivilegeService.getGroupPrivileges(user).getPrivileges();
         List<GroupPrivilegeContract> groupPrivilegeContractList = groupPrivileges.stream()
@@ -119,7 +116,7 @@ public class UserInfoController implements RestControllerResourceProcessor<UserI
         return new UserInfoClientContract(user.getUsername(),
                 organisation.getName(),
                 organisation.getId(),
-                usernameSuffix,
+                organisation.getEffectiveUsernameSuffix(),
                 user.getRoles(),
                 user.getSettings(),
                 user.getName(),
@@ -166,7 +163,12 @@ public class UserInfoController implements RestControllerResourceProcessor<UserI
             if (newUser) userService.addToDefaultUserGroup(user);
             logger.info(String.format("Saved User with UUID %s", userContract.getUuid()));
             OrganisationConfig organisationConfig = organisationConfigService.getOrganisationConfigByOrgId(organisationId);
-            idpServiceFactory.getIdpService(organisationRepository.findOne(organisationId)).createUserIfNotExists(savedUser, organisationConfig);
+            try {
+                idpServiceFactory.getIdpService(organisationRepository.findOne(organisationId)).createUserIfNotExists(savedUser, organisationConfig);
+            } catch (IDPException e) {
+                logger.error(String.format("Error creating user with UUID %s.", userContract.getUuid()), e);
+                throw new RuntimeException(e);
+            }
         });
     }
 

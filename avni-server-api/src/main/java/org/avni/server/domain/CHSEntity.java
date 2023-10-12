@@ -16,7 +16,7 @@ import java.util.Date;
 
 @MappedSuperclass
 @EntityListeners({AuditingEntityListener.class})
-public class CHSEntity extends CHSBaseEntity implements Auditable{
+public class CHSEntity extends CHSBaseEntity implements Auditable {
 
     @JsonIgnore
     @JoinColumn(name = "created_by_id")
@@ -86,13 +86,6 @@ public class CHSEntity extends CHSBaseEntity implements Auditable{
         this.setLastModifiedDateTime(DateTime.now());
     }
 
-    /**
-     * Update audit values for an entity. If an entity has changed, the
-     * infrastructure automatically updates audit values. However, this does not
-     * apply when children updates. This method does a force update of audit.
-     *
-     * This needs to be used only when absolutely necessary.
-     */
     public void updateAudit() {
         this.setLastModifiedBy(UserContextHolder.getUser());
         this.setLastModifiedDateTime(DateTime.now());

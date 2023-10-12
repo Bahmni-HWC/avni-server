@@ -3,7 +3,9 @@ package org.avni.server.domain;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.apache.commons.validator.routines.EmailValidator;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.Type;
+import org.hibernate.proxy.HibernateProxyHelper;
 import org.joda.time.DateTime;
 import org.avni.server.web.validation.ValidationException;
 
@@ -15,7 +17,11 @@ import java.util.stream.Collectors;
 @Entity
 @Table(name = "users")
 @BatchSize(size = 100)
+@Cacheable
+@org.hibernate.annotations.Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
 public class User {
+    public static final String DEFAULT_SUPER_ADMIN = "5fed2907-df3a-4867-aef5-c87f4c78a31a";
+
     public static String MOBILE_NUMBER_PATTERN = "^\\+91[0-9]{10}";
 
     @Column
@@ -203,12 +209,12 @@ public class User {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || HibernateProxyHelper.getClassWithoutInitializingProxy(this) != HibernateProxyHelper.getClassWithoutInitializingProxy(o)) return false;
 
         User other = (User) o;
 
-        if (id != null ? !id.equals(other.id) : other.id != null) return false;
-        return uuid != null ? uuid.equals(other.uuid) : other.uuid == null;
+        if (getId() != null ? !getId().equals(other.getId()) : other.getId() != null) return false;
+        return getUuid() != null ? getUuid().equals(other.getUuid()) : other.getUuid() == null;
     }
 
     @Override
@@ -308,8 +314,16 @@ public class User {
         this.operatingIndividualScope = operatingIndividualScope;
     }
 
+    /**
+     * Use only for mapping to contracts
+     */
     public JsonObject getSettings() {
         return settings;
+    }
+
+    @JsonIgnore
+    public UserSettings getUserSettings() {
+        return new UserSettings(this.settings);
     }
 
     public void setSettings(JsonObject settings) {

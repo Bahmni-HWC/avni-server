@@ -2,12 +2,12 @@ package org.avni.server.web;
 
 import org.avni.server.dao.PrivilegeRepository;
 import org.avni.server.dao.UserRepository;
-import org.avni.server.domain.PrivilegeEntityType;
 import org.avni.server.domain.Organisation;
 import org.avni.server.domain.User;
 import org.avni.server.domain.accessControl.GroupPrivilege;
 import org.avni.server.domain.accessControl.Privilege;
 import org.avni.server.framework.security.UserContextHolder;
+import org.avni.server.service.IdpServiceFactory;
 import org.avni.server.service.accessControl.GroupPrivilegeService;
 import org.avni.server.web.response.UserPrivilegeWebResponse;
 import org.avni.server.web.response.UserInfoWebResponse;
@@ -24,12 +24,14 @@ public class UserInfoWebController {
     private final GroupPrivilegeService groupPrivilegeService;
     private final UserRepository userRepository;
     private final PrivilegeRepository privilegeRepository;
+    private final IdpServiceFactory idpServiceFactory;
 
     @Autowired
-    public UserInfoWebController(GroupPrivilegeService groupPrivilegeService, UserRepository userRepository, PrivilegeRepository privilegeRepository) {
+    public UserInfoWebController(GroupPrivilegeService groupPrivilegeService, UserRepository userRepository, PrivilegeRepository privilegeRepository, IdpServiceFactory idpServiceFactory) {
         this.groupPrivilegeService = groupPrivilegeService;
         this.userRepository = userRepository;
         this.privilegeRepository = privilegeRepository;
+        this.idpServiceFactory = idpServiceFactory;
     }
 
     @RequestMapping(value = "/web/userInfo", method = RequestMethod.GET)
@@ -45,10 +47,9 @@ public class UserInfoWebController {
         }
 
         List<GroupPrivilege> groupPrivileges = groupPrivilegeService.getGroupPrivileges(user).getPrivileges();
-        String usernameSuffix = contextOrganisation.getUsernameSuffix() != null
-                ? contextOrganisation.getUsernameSuffix() : contextOrganisation.getDbUser();
+        String usernameSuffix = contextOrganisation.getEffectiveUsernameSuffix();
         String catchmentName = user.getCatchment() == null ? null : user.getCatchment().getName();
-
+        long lastSessionTime = idpServiceFactory.getIdpService(contextOrganisation).getLastLoginTime(user);
         List<UserPrivilegeWebResponse> groupPrivilegeResponses = groupPrivileges.stream()
                 .map(UserPrivilegeWebResponse::createForOrgUser)
                 .distinct()
@@ -62,6 +63,8 @@ public class UserInfoWebController {
                 catchmentName,
                 user.getSyncSettings(),
                 groupPrivilegeResponses,
-                user.hasAllPrivileges());
+                user.hasAllPrivileges(),
+                lastSessionTime);
     }
+
 }

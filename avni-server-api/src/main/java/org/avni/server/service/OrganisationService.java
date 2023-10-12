@@ -283,7 +283,7 @@ public class OrganisationService {
     }
 
     public void addRelationShipTypeJson(ZipOutputStream zos) throws IOException {
-        List<IndividualRelationshipTypeContract> allRelationshipTypes = individualRelationshipTypeService.getAllRelationshipTypes();
+        List<IndividualRelationshipTypeContract> allRelationshipTypes = individualRelationshipTypeService.getAllRelationshipTypes(true);
         if (!allRelationshipTypes.isEmpty()) {
             addFileToZip(zos, "relationshipType.json", allRelationshipTypes);
         }
@@ -315,7 +315,7 @@ public class OrganisationService {
 
     public void addGroupsJson(ZipOutputStream zos) throws IOException {
         List<GroupContract> groups = groupRepository.findAll().stream()
-                .filter(group -> !group.isOneOfTheDefaultGroups())
+                .filter(group -> !group.isAdministrator())
                 .map(GroupContract::fromEntity).collect(Collectors.toList());
         if (!groups.isEmpty()) {
             addFileToZip(zos, "groups.json", groups);
@@ -324,7 +324,7 @@ public class OrganisationService {
 
     public void addGroupPrivilegeJson(ZipOutputStream zos) throws IOException {
         List<GroupPrivilegeContractWeb> groupPrivileges = groupPrivilegeRepository.findAll().stream()
-                .filter(groupPrivilege -> !groupPrivilege.getGroup().isOneOfTheDefaultGroups())
+                .filter(groupPrivilege -> !groupPrivilege.getGroup().isAdministrator())
                 .map(GroupPrivilegeContractWeb::fromEntity).collect(Collectors.toList());
         if (!groupPrivileges.isEmpty()) {
             addFileToZip(zos, "groupPrivilege.json", groupPrivileges);

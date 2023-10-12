@@ -6,7 +6,6 @@ import org.avni.server.application.FormType;
 import org.avni.server.common.EntityHelper;
 import org.avni.server.common.Messageable;
 import org.avni.server.dao.*;
-import org.avni.server.dao.application.FormMappingRepository;
 import org.avni.server.domain.*;
 import org.avni.server.geo.Point;
 import org.avni.server.service.accessControl.AccessControlService;
@@ -33,7 +32,7 @@ import static org.springframework.data.jpa.domain.Specification.where;
 
 
 @Service
-public class ProgramEnrolmentService implements ScopeAwareService {
+public class ProgramEnrolmentService implements ScopeAwareService<ProgramEnrolment> {
     private static org.slf4j.Logger logger = LoggerFactory.getLogger(ProgramEnrolmentService.class);
 
     private final ProgramEnrolmentRepository programEnrolmentRepository;
@@ -65,7 +64,7 @@ public class ProgramEnrolmentService implements ScopeAwareService {
                                    ChecklistItemRepository checklistItemRepository,
                                    IdentifierAssignmentRepository identifierAssignmentRepository,
                                    AccessControlService accessControlService,
-                                   FormMappingRepository formMappingRepository, FormMappingService formMappingService) {
+                                   FormMappingService formMappingService) {
         this.programEnrolmentRepository = programEnrolmentRepository;
         this.programEncounterService = programEncounterService;
         this.programEncounterRepository = programEncounterRepository;
@@ -148,6 +147,8 @@ public class ProgramEnrolmentService implements ScopeAwareService {
         } else {
             program = programRepository.findByUuid(request.getProgramUUID());
         }
+        Decisions decisions = request.getDecisions();
+        observationService.validateObservationsAndDecisions(request.getObservations(), decisions != null ? decisions.getEnrolmentDecisions() : null, formMappingService.find(program, FormType.ProgramEnrolment));
         ProgramOutcome programOutcome = programOutcomeRepository.findByUuid(request.getProgramOutcomeUUID());
         ProgramEnrolment programEnrolment = EntityHelper.newOrExistingEntity(programEnrolmentRepository,request, new ProgramEnrolment());
         programEnrolment.setProgram(program);
@@ -163,7 +164,6 @@ public class ProgramEnrolmentService implements ScopeAwareService {
         programEnrolment.setObservations(observationService.createObservations(request.getObservations()));
         programEnrolment.setProgramExitObservations(observationService.createObservations(request.getProgramExitObservations()));
 
-        Decisions decisions = request.getDecisions();
         if(decisions != null) {
             ObservationCollection observationsFromDecisions = observationService
                     .createObservationsFromDecisions(decisions.getEnrolmentDecisions());
@@ -278,7 +278,7 @@ public class ProgramEnrolmentService implements ScopeAwareService {
     }
 
     @Override
-    public OperatingIndividualScopeAwareRepository repository() {
+    public OperatingIndividualScopeAwareRepository<ProgramEnrolment> repository() {
         return programEnrolmentRepository;
     }
 

@@ -1,6 +1,6 @@
 package org.avni.server.service;
 
-import org.avni.server.dao.SyncParameters;
+import org.avni.server.dao.sync.SyncEntityName;
 import org.avni.server.domain.Individual;
 import org.avni.server.domain.individualRelationship.IndividualRelationship;
 import org.joda.time.DateTime;
@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
 import java.util.Set;
 
 @Service
-public class IndividualRelationshipService implements ScopeAwareService {
+public class IndividualRelationshipService implements ScopeAwareService<IndividualRelationship> {
 
     private final IndividualRelationshipRepository individualRelationshipRepository;
     private final SubjectTypeRepository subjectTypeRepository;
@@ -31,11 +31,11 @@ public class IndividualRelationshipService implements ScopeAwareService {
     public boolean isScopeEntityChanged(DateTime lastModifiedDateTime, String subjectTypeUUID) {
         SubjectType subjectType = subjectTypeRepository.findByUuid(subjectTypeUUID);
         User user = UserContextHolder.getUserContext().getUser();
-        return subjectType != null && isChangedBySubjectTypeRegistrationLocationType(user, lastModifiedDateTime, subjectType.getId(), subjectType, SyncParameters.SyncEntityName.IndividualRelationShip);
+        return subjectType != null && isChangedBySubjectTypeRegistrationLocationType(user, lastModifiedDateTime, subjectType.getId(), subjectType, SyncEntityName.IndividualRelationship);
     }
 
     @Override
-    public OperatingIndividualScopeAwareRepository repository() {
+    public OperatingIndividualScopeAwareRepository<IndividualRelationship> repository() {
         return individualRelationshipRepository;
     }
 

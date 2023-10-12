@@ -27,12 +27,14 @@ public class IndividualRelationshipTypeService implements NonScopeAwareService {
         this.individualRelationRepository = individualRelationRepository;
     }
 
-    public List<IndividualRelationshipTypeContract> getAllRelationshipTypes() {
-        List<IndividualRelationshipType> relationshipTypes = individualRelationshipTypeRepository.findAllByIsVoidedFalse();
+    public List<IndividualRelationshipTypeContract> getAllRelationshipTypes(boolean includeVoided) {
+        List<IndividualRelationshipType> relationshipTypes =
+                includeVoided ?
+                        individualRelationshipTypeRepository.findAll() :
+                        individualRelationshipTypeRepository.findAllByIsVoidedFalse();
         return relationshipTypes
                 .stream()
                 .map(IndividualRelationshipTypeContract::fromEntity)
-                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
 
@@ -45,9 +47,8 @@ public class IndividualRelationshipTypeService implements NonScopeAwareService {
                 .findByIndividualAIsToBAndIndividualBIsToA(aToB, bToA);
         if (individualRelationshipType == null) {
             individualRelationshipType = createIndividualRelationshipType(aToB, bToA, relationshipTypeContract.getUuid());
-        } else {
-            individualRelationshipType.setVoided(false);
         }
+        individualRelationshipType.setVoided(relationshipTypeContract.isVoided());
         return individualRelationshipTypeRepository.save(individualRelationshipType);
     }
 

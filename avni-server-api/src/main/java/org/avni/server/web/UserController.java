@@ -10,6 +10,7 @@ import org.avni.server.framework.security.UserContextHolder;
 import org.avni.server.projection.UserWebProjection;
 import org.avni.server.service.*;
 import org.avni.server.service.accessControl.AccessControlService;
+import org.avni.server.util.WebResponseUtil;
 import org.avni.server.web.request.ChangePasswordRequest;
 import org.avni.server.web.request.ResetPasswordRequest;
 import org.avni.server.web.request.UserContract;
@@ -21,7 +22,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.rest.core.annotation.RestResource;
 import org.springframework.data.rest.webmvc.RepositoryRestController;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +32,7 @@ import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 import javax.transaction.Transactional;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -52,7 +50,6 @@ public class UserController {
     private final AccountAdminRepository accountAdminRepository;
     private final ResetSyncService resetSyncService;
     private final SubjectTypeRepository subjectTypeRepository;
-    private final OrganisationConfigService organisationConfigService;
 
     @Value("${avni.userPhoneNumberPattern}")
     private String MOBILE_NUMBER_PATTERN;
@@ -78,19 +75,12 @@ public class UserController {
         this.accountAdminRepository = accountAdminRepository;
         this.resetSyncService = resetSyncService;
         this.subjectTypeRepository = subjectTypeRepository;
-        this.organisationConfigService = organisationConfigService;
         this.accessControlService = accessControlService;
         logger = LoggerFactory.getLogger(this.getClass());
     }
 
     private Boolean usernameExists(String name) {
         return (userRepository.findByUsername(name) != null);
-    }
-
-    private Map<String, String> generateJsonError(String errorMsg) {
-        Map<String, String> errorMap = new HashMap<>();
-        errorMap.put("message", errorMsg);
-        return errorMap;
     }
 
     @RequestMapping(value = {"/user", "/user/accountOrgAdmin"}, method = RequestMethod.POST)
@@ -108,9 +98,7 @@ public class UserController {
             user.setUsername(userContract.getUsername());
             user = setUserAttributes(user, userContract);
 
-            Organisation organisation = UserContextHolder.getUserContext().getOrganisation();
-            OrganisationConfig organisationConfig = organisationConfigService.getOrganisationConfig(organisation);
-            idpServiceFactory.getIdpService(organisation).createUserWithPassword(user, userContract.getPassword(), organisationConfig);
+            idpServiceFactory.getIdpService().createSuperAdminWithPassword(user, userContract.getPassword());
             userService.save(user);
             accountAdminService.createAccountAdmins(user, userContract.getAccountIds());
             userService.addToDefaultUserGroup(user);
@@ -118,11 +106,9 @@ public class UserController {
             logger.info(String.format("Saved new user '%s', UUID '%s'", userContract.getUsername(), user.getUuid()));
             return new ResponseEntity<>(user, HttpStatus.CREATED);
         } catch (ValidationException | UsernameExistsException ex) {
-            logger.error(ex.getMessage());
-            return ResponseEntity.badRequest().body(generateJsonError(ex.getMessage()));
-        } catch (AWSCognitoIdentityProviderException ex) {
-            logger.error(ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createBadRequestResponse(ex, logger);
+        } catch (AWSCognitoIdentityProviderException | IDPException ex) {
+            return WebResponseUtil.createInternalServerErrorResponse(ex, logger);
         }
     }
 
@@ -158,11 +144,9 @@ public class UserController {
             logger.info(String.format("Saved user '%s', UUID '%s'", userContract.getUsername(), user.getUuid()));
             return new ResponseEntity<>(user, HttpStatus.CREATED);
         } catch (ValidationException ex) {
-            logger.error(ex.getMessage());
-            return ResponseEntity.badRequest().body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createBadRequestResponse(ex, logger);
         } catch (AWSCognitoIdentityProviderException ex) {
-            logger.error(ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createInternalServerErrorResponse(ex, logger);
         }
     }
 
@@ -214,8 +198,7 @@ public class UserController {
             logger.info(String.format("Deleted user '%s', UUID '%s'", user.getUsername(), user.getUuid()));
             return new ResponseEntity<>(user, HttpStatus.CREATED);
         } catch (AWSCognitoIdentityProviderException ex) {
-            logger.error(ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createInternalServerErrorResponse(ex, logger);
         }
     }
 
@@ -243,8 +226,7 @@ public class UserController {
             }
             return new ResponseEntity<>(user, HttpStatus.CREATED);
         } catch (AWSCognitoIdentityProviderException ex) {
-            logger.error(ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createInternalServerErrorResponse(ex, logger);
         }
     }
 
@@ -257,8 +239,9 @@ public class UserController {
             idpServiceFactory.getIdpService(user).resetPassword(user, resetPasswordRequest.getPassword());
             return new ResponseEntity<>(user, HttpStatus.CREATED);
         } catch (AWSCognitoIdentityProviderException ex) {
-            logger.error(ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createInternalServerErrorResponse(ex, logger);
+        } catch (IDPException ex) {
+            return WebResponseUtil.createBadRequestResponse(ex, logger);
         }
     }
 
@@ -270,8 +253,9 @@ public class UserController {
             idpServiceFactory.getIdpService(user).resetPassword(user, changePasswordRequest.getNewPassword());
             return new ResponseEntity<>(user, HttpStatus.CREATED);
         } catch (AWSCognitoIdentityProviderException ex) {
-            logger.error(ex.getMessage(), ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(generateJsonError(ex.getMessage()));
+            return WebResponseUtil.createInternalServerErrorResponse(ex, logger);
+        } catch (IDPException ex) {
+            return WebResponseUtil.createBadRequestResponse(ex, logger);
         }
     }
 
@@ -316,9 +300,7 @@ public class UserController {
         accessControlService.checkIsAdmin();
         User user = UserContextHolder.getUserContext().getUser();
         List<Long> userAccountIds = getOwnedAccountIds(user);
-        List<Long> organisationIds = getOwnedOrganisationIds(user);
-        List<Long> queryParam = organisationIds.isEmpty() ? null : organisationIds;
-        Page<UserContract> userContracts = userRepository.findAccountAndOrgAdmins(username, name, email, phoneNumber, userAccountIds, queryParam, pageable)
+        Page<UserContract> userContracts = userRepository.findAccountAndOrgAdmins(username, name, email, phoneNumber, userAccountIds, pageable)
                 .map(UserContract::fromEntity);
         userContracts.forEach(this::setAccountIds);
         return userContracts;
@@ -368,7 +350,7 @@ public class UserController {
         return userRepository.findByOrganisationIdAndIsVoidedFalse(organisationId, pageable);
     }
 
-    @RestResource(path = "/user/search/findAllById", rel = "findAllById")
+    @GetMapping(path = "/user/search/findAllById")
     @ResponseBody
     public List<User> findByIdIn(@RequestParam Long[] ids) {
         accessControlService.checkPrivilege(PrivilegeType.EditUserConfiguration);

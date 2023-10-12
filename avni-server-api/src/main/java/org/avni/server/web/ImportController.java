@@ -12,6 +12,7 @@ import org.avni.server.framework.security.UserContextHolder;
 import org.avni.server.importer.batch.JobService;
 import org.avni.server.service.*;
 import org.avni.server.service.accessControl.AccessControlService;
+import org.avni.server.web.util.ErrorBodyBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.JobParametersInvalidException;
@@ -33,15 +34,14 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Base64;
-import java.util.List;
 import java.util.UUID;
 
 import static java.lang.String.format;
+import static org.avni.server.util.AvniFiles.validateFile;
 import static org.springframework.http.MediaType.*;
 
 @RestController
 public class ImportController {
-    private final OldDataImportService oldDataImportService;
     private final Logger logger;
     private final JobService jobService;
     private final BulkUploadS3Service bulkUploadS3Service;
@@ -51,17 +51,16 @@ public class ImportController {
     private final LocationService locationService;
     private final FormElementRepository formElementRepository;
     private final AccessControlService accessControlService;
+    private final ErrorBodyBuilder errorBodyBuilder;
 
     @Autowired
-    public ImportController(OldDataImportService oldDataImportService,
-                            JobService jobService,
+    public ImportController(JobService jobService,
                             BulkUploadS3Service bulkUploadS3Service,
                             ImportService importService,
                             S3Service s3Service,
                             IndividualService individualService,
                             LocationService locationService,
-                            FormElementRepository formElementRepository, AccessControlService accessControlService) {
-        this.oldDataImportService = oldDataImportService;
+                            FormElementRepository formElementRepository, AccessControlService accessControlService, ErrorBodyBuilder errorBodyBuilder) {
         this.jobService = jobService;
         this.bulkUploadS3Service = bulkUploadS3Service;
         this.importService = importService;
@@ -70,17 +69,8 @@ public class ImportController {
         this.locationService = locationService;
         this.formElementRepository = formElementRepository;
         this.accessControlService = accessControlService;
+        this.errorBodyBuilder = errorBodyBuilder;
         logger = LoggerFactory.getLogger(getClass());
-    }
-
-    @RequestMapping(value = "/excelImport", method = RequestMethod.POST)
-    public ResponseEntity<?> uploadData(@RequestParam("metaDataFile") MultipartFile metaDataFile,
-                                        @RequestParam MultipartFile dataFile,
-                                        @RequestParam(required = false) Integer maxNumberOfRecords,
-                                        @RequestParam List<Integer> activeSheets) throws Exception {
-        accessControlService.checkPrivilege(PrivilegeType.UploadMetadataAndData);
-        oldDataImportService.importExcel(metaDataFile.getInputStream(), dataFile.getInputStream(), dataFile.getOriginalFilename(), true, maxNumberOfRecords, activeSheets);
-        return new ResponseEntity<>(true, HttpStatus.CREATED);
     }
 
     @RequestMapping(value = "/web/importSample", method = RequestMethod.GET)
@@ -100,8 +90,11 @@ public class ImportController {
     public ResponseEntity<?> doit(@RequestParam MultipartFile file,
                                   @RequestParam String type,
                                   @RequestParam boolean autoApprove,
-                                  @RequestParam String locationUploadMode) {
+                                  @RequestParam String locationUploadMode) throws IOException {
+
         accessControlService.checkPrivilege(PrivilegeType.UploadMetadataAndData);
+        validateFile(file, type.equals("metadataZip") ? "application/zip" : "text/csv");
+
         String uuid = UUID.randomUUID().toString();
         User user = UserContextHolder.getUserContext().getUser();
         Organisation organisation = UserContextHolder.getUserContext().getOrganisation();
@@ -109,20 +102,17 @@ public class ImportController {
             ObjectInfo storedFileInfo = type.equals("metadataZip") ? bulkUploadS3Service.uploadZip(file, uuid) : bulkUploadS3Service.uploadFile(file, uuid);
             jobService.create(uuid, type, file.getOriginalFilename(), storedFileInfo, user.getId(), organisation.getUuid(), autoApprove, locationUploadMode);
         } catch (JobParametersInvalidException | JobExecutionAlreadyRunningException | JobInstanceAlreadyCompleteException | JobRestartException e) {
-            logger.error(format("Bulkupload initiation failed. file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()));
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
+            logger.error(format("Bulkupload initiation failed. file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(e));
         } catch (IOException e) {
-            logger.error(format("Bulkupload initiation failed. file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()));
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(format("Unable to process file. %s", e.getMessage()));
+            logger.error(format("Bulkupload initiation failed. file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(format("Unable to process file. %s", e.getMessage())));
         } catch (Exception e) {
-            logger.error(format("Bulkupload initiation failed. file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()));
-            e.printStackTrace();
+            logger.error(format("Bulkupload initiation failed. file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()), e);
             if (!type.equals("metadataZip")) {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(format("%s does not appear to be a valid .csv file.", file.getOriginalFilename()));
             }
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(format("Unable to process file. %s", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(format("Unable to process file. %s", e.getMessage())));
         }
         return ResponseEntity.ok(true);
     }

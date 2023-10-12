@@ -5,6 +5,7 @@ import org.avni.server.domain.AddressLevel;
 import org.avni.server.domain.Concept;
 import org.avni.server.domain.Individual;
 import org.avni.server.domain.SubjectType;
+import org.avni.server.framework.security.UserContextHolder;
 import org.avni.server.projection.IndividualWebProjection;
 import org.joda.time.DateTime;
 import org.joda.time.LocalDate;
@@ -35,10 +36,13 @@ public interface IndividualRepository extends TransactionalDataRepository<Indivi
     }
 
     @Override
-    default boolean isEntityChangedForCatchment(SyncParameters syncParameters) {
-        return count(syncEntityChangedAuditSpecification(syncParameters)
-                .and(syncTypeIdSpecification(syncParameters.getTypeId()))
-                .and(syncStrategySpecification(syncParameters))
+    default boolean isEntityChanged(SyncParameters syncParameters) {
+        Specification<Individual> audit = syncEntityChangedAuditSpecification(syncParameters);
+        Specification<Individual> subjectType = syncTypeIdSpecification(syncParameters.getTypeId());
+        Specification<Individual> location_AndDirectAssignment_AndSyncAttributes = syncStrategySpecification(syncParameters);
+        return count(audit
+                .and(subjectType)
+                .and(location_AndDirectAssignment_AndSyncAttributes)
         ) > 0;
     }
 
@@ -181,9 +185,14 @@ public interface IndividualRepository extends TransactionalDataRepository<Indivi
     @Modifying(clearAutomatically = true)
     @Query(value = "update individual i set " +
             "sync_concept_1_value = CAST((i.observations ->> CAST(:syncAttribute1 as text)) as text), " +
-            "sync_concept_2_value = CAST((i.observations ->> CAST(:syncAttribute2 as text)) as text) " +
+            "sync_concept_2_value = CAST((i.observations ->> CAST(:syncAttribute2 as text)) as text), " +
+            "last_modified_date_time = :lastModifiedDateTime, last_modified_by_id = :lastModifiedById " +
             "where i.subject_type_id = :subjectTypeId", nativeQuery = true)
-    void updateConceptSyncAttributesForSubjectType(Long subjectTypeId, String syncAttribute1, String syncAttribute2);
+    void updateConceptSyncAttributesForSubjectType(Long subjectTypeId, String syncAttribute1, String syncAttribute2, Date lastModifiedDateTime, Long lastModifiedById);
+
+    default void updateConceptSyncAttributesForSubjectType(Long subjectTypeId, String syncAttribute1, String syncAttribute2) {
+        this.updateConceptSyncAttributesForSubjectType(subjectTypeId, syncAttribute1, syncAttribute2, new Date(), UserContextHolder.getUserId());
+    }
 
     boolean existsByAddressLevelIdIn(List<Long> addressIds);
     default boolean hasSubjectsInLocations(List<Long> addressIds) {

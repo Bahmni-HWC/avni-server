@@ -10,6 +10,7 @@ import static org.avni.messaging.domain.Constants.NO_OF_DIGITS_IN_INDIAN_MOBILE_
 
 import org.avni.server.framework.security.UserContextHolder;
 import org.avni.server.service.exception.GroupNotFoundException;
+import org.avni.server.web.validation.ValidationException;
 import org.bouncycastle.util.Strings;
 import org.joda.time.DateTime;
 import org.slf4j.Logger;
@@ -24,11 +25,11 @@ import java.util.stream.Collectors;
 
 @Service
 public class UserService implements NonScopeAwareService {
-    private static Logger logger = LoggerFactory.getLogger(UserService.class);
-    private UserRepository userRepository;
-    private OrganisationRepository organisationRepository;
-    private GroupRepository groupRepository;
-    private UserGroupRepository userGroupRepository;
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
+    private final UserRepository userRepository;
+    private final OrganisationRepository organisationRepository;
+    private final GroupRepository groupRepository;
+    private final UserGroupRepository userGroupRepository;
 
     @Autowired
     public UserService(UserRepository userRepository, OrganisationRepository organisationRepository, GroupRepository groupRepository, UserGroupRepository userGroupRepository) {
@@ -43,17 +44,30 @@ public class UserService implements NonScopeAwareService {
         return userContext.getUser();
     }
 
-    @Transactional
     public User save(User user) {
-        return userRepository.save(user);
+        String idPrefix = UserSettings.getIdPrefix(user.getSettings());
+        if (StringUtils.hasLength(idPrefix)) {
+            synchronized (String.format("%d-USER-ID-PREFIX-%s", user.getOrganisationId(), idPrefix).intern()) {
+                List<User> usersWithSameIdPrefix = userRepository.getUsersWithSameIdPrefix(idPrefix, user.getId());
+                if (usersWithSameIdPrefix.size() == 0) {
+                    return userRepository.save(user);
+                } else {
+                    throw new ValidationException(String.format("There is another user %s with same prefix: %s", usersWithSameIdPrefix.get(0).getUsername(), idPrefix));
+                }
+            }
+        } else {
+            return userRepository.save(user);
+        }
     }
 
     @Transactional
     public void addToDefaultUserGroup(User user) {
         if (user.getOrganisationId() != null) {
             Group group = groupRepository.findByNameAndOrganisationId(Group.Everyone, user.getOrganisationId());
-            UserGroup userGroup = UserGroup.createMembership(user, group);
-            userGroupRepository.save(userGroup);
+            if (userGroupRepository.findByUserAndGroupAndIsVoidedFalse(user, group) == null) {
+                UserGroup userGroup = UserGroup.createMembership(user, group);
+                userGroupRepository.save(userGroup);
+            }
         }
     }
 
@@ -65,7 +79,7 @@ public class UserService implements NonScopeAwareService {
         List<UserGroup> userGroupsToBeSaved = new ArrayList<>();
         Group everyoneGroup = groupRepository.findByNameAndOrganisationId(Group.Everyone, user.getOrganisationId());
         List<Long> currentlyLinkedGroups = user.getUserGroups().stream()
-                .map(userGroup -> userGroup.getGroupId()).collect(Collectors.toList());
+                .map(UserGroup::getGroupId).collect(Collectors.toList());
 
         //Create new UserGroups for newly associated groups
         associatedGroupIds.stream()
@@ -122,8 +136,10 @@ public class UserService implements NonScopeAwareService {
                 String errorMessage = String.format("Group '%s' not found", groupName);
                 throw new RuntimeException(errorMessage);
             }
-            UserGroup userGroup = UserGroup.createMembership(user, group);
-            this.userGroupRepository.save(userGroup);
+            if (userGroupRepository.findByUserAndGroupAndIsVoidedFalse(user, group) == null) {
+                UserGroup userGroup = UserGroup.createMembership(user, group);
+                this.userGroupRepository.save(userGroup);
+            }
         });
         if (!Arrays.asList(groupNames).contains(Group.Everyone)) {
             this.addToDefaultUserGroup(user);

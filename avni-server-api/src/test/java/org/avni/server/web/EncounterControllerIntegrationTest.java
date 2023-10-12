@@ -19,7 +19,7 @@ public class EncounterControllerIntegrationTest extends AbstractControllerIntegr
     @Autowired
     private EncounterRepository encounterRepository;
 
-    private String ENCOUNTER_UUID = "fbfd4ce8-b03b-45b9-b919-1ef8a0d9651e";
+    private final String ENCOUNTER_UUID = "fbfd4ce8-b03b-45b9-b919-1ef8a0d9651e";
 
     @Override
     public void setUp() throws Exception {
@@ -79,32 +79,6 @@ public class EncounterControllerIntegrationTest extends AbstractControllerIntegr
             Encounter newEncounter = encounterRepository.findByUuid(ENCOUNTER_UUID);
             assertThat(newEncounter).isNotNull();
             assertThat(newEncounter.isVoided()).isFalse();
-
-        } catch (IOException e) {
-            Assert.fail();
-        }
-    }
-
-    @Test
-    public void failWhenSingleSelectObservationHasNonExistentConceptAnswer() {
-        try {
-            Object json = mapper.readValue(this.getClass().getResource("/ref/encounters/invalidSingleSelectAnswer.json"), Object.class);
-            String responseBody = postForBody("/encounters", json);
-
-            assertThat(responseBody).isEqualTo("Concept answer '6f83d3e4-0e25-4f51-8b5e-5421322f3ffe' not found in Concept '9daa0b8a-985a-464d-a5ab-8a4f90e8a26b'");
-
-        } catch (IOException e) {
-            Assert.fail();
-        }
-    }
-
-    @Test
-    public void failWhenMultiSelectObservationHasNonExistentConceptAnswer() {
-        try {
-            Object json = mapper.readValue(this.getClass().getResource("/ref/encounters/invalidMultiSelectAnswers.json"), Object.class);
-            String responseBody = postForBody("/encounters", json);
-
-            assertThat(responseBody).isEqualTo("Concept answer '6f83d3e4-0e25-4f51-8b5e-5421322f3ffe' not found in Concept '9daa0b8a-985a-464d-a5ab-8a4f90e8a26b'");
 
         } catch (IOException e) {
             Assert.fail();

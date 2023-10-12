@@ -6,6 +6,7 @@ import org.avni.server.dao.EncounterTypeRepository;
 import org.avni.server.dao.IndividualRepository;
 import org.avni.server.domain.*;
 import org.avni.server.domain.accessControl.PrivilegeType;
+import org.avni.server.geo.Point;
 import org.avni.server.service.ConceptService;
 import org.avni.server.service.EncounterService;
 import org.avni.server.service.MediaObservationService;
@@ -28,7 +29,14 @@ import org.springframework.web.bind.annotation.*;
 import javax.transaction.Transactional;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+
+import static org.avni.server.web.request.api.ApiBaseEncounterRequest.*;
+import static org.avni.server.web.request.api.ApiSubjectRequest.OBSERVATIONS;
+
+import static org.avni.server.web.request.api.ApiBaseEncounterRequest.*;
 
 @RestController
 public class GeneralEncounterApiController {
@@ -97,7 +105,7 @@ public class GeneralEncounterApiController {
         Encounter encounter = createEncounter(request.getExternalId());
         try {
             initializeIndividual(request, encounter);
-            updateEncounter(encounter, request);
+            encounter = updateEncounter(encounter, request);
         } catch (ValidationException ve) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ve.getMessage());
         }
@@ -133,6 +141,28 @@ public class GeneralEncounterApiController {
         }
         try {
             encounter = updateEncounter(encounter, request);
+        } catch (ValidationException ve) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ve.getMessage());
+        }
+        return new ResponseEntity<>(EncounterResponse.fromEncounter(encounter, conceptRepository, conceptService), HttpStatus.OK);
+    }
+
+    @PatchMapping(value = "/api/encounter/{id}")
+    @PreAuthorize(value = "hasAnyAuthority('user')")
+    @Transactional
+    @ResponseBody
+    public ResponseEntity patch(@PathVariable String id, @RequestBody Map<String, Object> request) throws IOException {
+        accessControlService.checkEncounterPrivilege(PrivilegeType.EditVisit, (String) request.get(ENCOUNTER_TYPE));
+        Encounter encounter = encounterRepository.findByLegacyIdOrUuid(id);
+        String externalId = (String) request.get(EXTERNAL_ID);
+        if (encounter == null && StringUtils.hasLength(externalId)) {
+            encounter = encounterRepository.findByLegacyId(externalId.trim());
+        }
+        if (encounter == null) {
+            throw new IllegalArgumentException(String.format("Encounter not found with id '%s' or External ID '%s'", id, externalId));
+        }
+        try {
+            encounter = encounterService.patchEncounter(encounter, request);
         } catch (ValidationException ve) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ve.getMessage());
         }

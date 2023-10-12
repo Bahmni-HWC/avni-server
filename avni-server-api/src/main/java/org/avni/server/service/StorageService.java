@@ -39,7 +39,7 @@ public abstract class StorageService implements S3Service {
     protected final String bucketName;
     protected final boolean s3InDev;
     protected final Regions REGION = Regions.AP_SOUTH_1;
-    protected final long EXPIRY_DURATION = Duration.ofHours(1).toMillis();
+    protected final long EXPIRY_DURATION = Duration.ofMinutes(10).toMillis();
     protected final long DOWNLOAD_EXPIRY_DURATION = Duration.ofMinutes(2).toMillis();
     protected AmazonS3 s3Client;
     protected final Pattern mediaDirPattern = Pattern.compile("^/?(?<mediaDir>[^/]+)/.+$");
@@ -104,8 +104,7 @@ public abstract class StorageService implements S3Service {
             exists = s3Client.doesObjectExist(bucketName, objectKey);
             logger.info(String.format("Checking for file: %s resulted in %b", objectKey, exists));
         } catch (Exception e) {
-            logger.error(String.format("Error while accessing file %s", objectKey));
-            e.printStackTrace();
+            logger.error(String.format("Error while accessing file %s", objectKey), e);
         }
         return exists;
     }
@@ -196,8 +195,7 @@ public abstract class StorageService implements S3Service {
                 logger.info(format("[dev] Get file locally. '%s'", s3Key));
                 return new FileInputStream(s3Key);
             } catch (FileNotFoundException e) {
-                e.printStackTrace();
-                logger.error(format("[dev] File not found. Assume empty. '%s'", s3Key));
+                logger.error(format("[dev] File not found. Assume empty. '%s'", s3Key), e);
                 return new ByteArrayInputStream(new byte[]{});
             }
         }
@@ -233,8 +231,7 @@ public abstract class StorageService implements S3Service {
             try {
                 return new FileInputStream(localFilePath);
             } catch (FileNotFoundException e) {
-                e.printStackTrace();
-                logger.error(format("[dev] File not found. Assume empty. '%s'", s3File.getPath()));
+                logger.error(format("[dev] File not found. Assume empty. '%s'", s3File.getPath()), e);
                 return new ByteArrayInputStream(new byte[]{});
             }
         }

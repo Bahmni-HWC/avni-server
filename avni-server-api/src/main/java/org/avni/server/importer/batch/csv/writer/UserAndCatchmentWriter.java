@@ -32,6 +32,7 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
     private final SubjectTypeService subjectTypeService;
     private final ConceptService conceptService;
     private final Pattern compoundHeaderPattern;
+    private final ResetSyncService resetSyncService;
 
     @Autowired
     public UserAndCatchmentWriter(CatchmentService catchmentService,
@@ -40,7 +41,7 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
                                   UserRepository userRepository,
                                   OrganisationConfigService organisationConfigService,
                                   IdpServiceFactory idpServiceFactory,
-                                  SubjectTypeService subjectTypeService, ConceptService conceptService) {
+                                  SubjectTypeService subjectTypeService, ConceptService conceptService, ResetSyncService resetSyncService) {
         this.catchmentService = catchmentService;
         this.locationRepository = locationRepository;
         this.userService = userService;
@@ -49,6 +50,7 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
         this.idpServiceFactory = idpServiceFactory;
         this.subjectTypeService = subjectTypeService;
         this.conceptService = conceptService;
+        this.resetSyncService = resetSyncService;
         this.compoundHeaderPattern = Pattern.compile("^(?<subjectTypeName>.*?)->(?<conceptName>.*)$");
     }
 
@@ -79,23 +81,23 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
 
         Catchment catchment = catchmentService.createOrUpdate(catchmentName, location);
         Organisation organisation = UserContextHolder.getUserContext().getOrganisation();
-        String userSuffix = "@".concat(organisation.getUsernameSuffix());
+        String userSuffix = "@".concat(organisation.getEffectiveUsernameSuffix());
         User.validateUsername(username, userSuffix);
         User user = userRepository.findByUsername(username);
         User currentUser = userService.getCurrentUser();
-        if (user != null) {
-            user.setAuditInfo(currentUser);
-            userService.save(user);
-            return;
+        boolean isNewUser = false;
+        if (user == null) {
+            user = new User();
+            user.assignUUIDIfRequired();
+            user.setUsername(username);
+            isNewUser = true;
         }
-        user = new User();
-        user.assignUUIDIfRequired();
-        user.setUsername(username);
         User.validateEmail(email);
         user.setEmail(email);
         User.validatePhoneNumber(phoneNumber);
         user.setPhoneNumber(phoneNumber);
         user.setName(nameOfUser);
+        if (!isNewUser) resetSyncService.recordSyncAttributeValueChangeForUser(user, catchment.getId(), syncSettings);
         user.setCatchment(catchment);
         user.setOperatingIndividualScope(ByCatchment);
         user.setSyncSettings(syncSettings);
@@ -105,13 +107,17 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
                 .with("trackLocation", trackLocation)
                 .withEmptyCheck("datePickerMode", datePickerMode)
                 .with("showBeneficiaryMode", beneficiaryMode)
-                .withEmptyCheck("idPrefix", idPrefix));
+                .withEmptyCheck(UserSettings.ID_PREFIX, idPrefix));
 
         user.setOrganisationId(organisation.getId());
         user.setAuditInfo(currentUser);
         userService.save(user);
         userService.addToGroups(user, groupsSpecified);
-        idpServiceFactory.getIdpService(organisation).createUser(user, organisationConfigService.getOrganisationConfig(organisation));
+        if (isNewUser) {
+            idpServiceFactory.getIdpService(organisation).createUser(user, organisationConfigService.getOrganisationConfig(organisation));
+        } else {
+            idpServiceFactory.getIdpService(organisation).updateUser(user);
+        }
     }
 
     private JsonObject constructSyncSettings(Row row) throws Exception {
@@ -122,7 +128,7 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
         }
 
         JsonObject syncSettings = new JsonObject();
-        if(!syncSettingsMap.values().isEmpty())
+        if (!syncSettingsMap.values().isEmpty())
             syncSettings = syncSettings.with(User.SyncSettingKeys.subjectTypeSyncSettings.name(),
                     new ArrayList<>(syncSettingsMap.values()));
 
@@ -134,7 +140,7 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
         if (headerPatternMatcher.matches()) {
             String conceptName = headerPatternMatcher.group("conceptName");
             String conceptValues = row.get(saHeader);
-            if(conceptValues.isEmpty()) return;
+            if (conceptValues.isEmpty()) return;
             String subjectTypeName = headerPatternMatcher.group("subjectTypeName");
             SubjectType subjectType = subjectTypeService.getByName(subjectTypeName);
 
@@ -173,8 +179,8 @@ public class UserAndCatchmentWriter implements ItemWriter<Row>, Serializable {
         for (String syncSettingsValue : syncSettingsValues) {
             Optional<Concept> conceptAnswer = Optional.ofNullable(conceptService.getByName(syncSettingsValue));
             conceptAnswer.orElseThrow(() -> new Exception(String.format("'%s' is not a valid value for the concept '%s'. " +
-                                "To input this value, add this as an answer to the coded concept '%s'",
-                        syncSettingsValue, concept.getName(), concept.getName())));
+                            "To input this value, add this as an answer to the coded concept '%s'",
+                    syncSettingsValue, concept.getName(), concept.getName())));
             syncSettingCodedConceptValues.add(conceptAnswer.get().getUuid());
         }
 

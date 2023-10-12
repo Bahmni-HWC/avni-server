@@ -118,12 +118,15 @@ jobs:
 
     - run: cp ~/avni-server/avni-server-api/build/distributions/avni-server-*.noarch.rpm ~/artifacts/;
 
+    - run: cp ~/avni-server/avni-server-api/build/libs/avni-server-*.jar ~/artifacts/;
+
     - persist_to_workspace:
         root: ~/artifacts
         paths:
         - minor_version
         - major_version
         - avni-server-*.noarch.rpm
+        - avni-server-*.jar
 
     - store_artifacts:
         path: ~/artifacts
@@ -160,6 +163,14 @@ jobs:
       - deploy:
           hostname: "ssh.perf.avniproject.org"
 
+  PROD_deploy:
+    docker:
+      - image: circleci/openjdk:8-jdk
+    working_directory: ~/
+    steps:
+      - deploy:
+          hostname: "ssh.prod.avniproject.org"
+
 workflows:
   version: 2
   test_and_build_and_deploy:
@@ -170,18 +181,10 @@ workflows:
           - test
     - STAGING_approve:
         type: approval
-        filters:
-          branches:
-            only:
-              - master
         requires:
           - build
     - STAGING_deploy:
         context: non-prod-deploy
-        filters:
-          branches:
-            only:
-              - master
         requires:
           - STAGING_approve
     - UAT_approve:
@@ -208,6 +211,14 @@ workflows:
         context: non-prod-deploy
         requires:
           - PERF_approve
+    - PROD_approve:
+        type: approval
+        requires:
+          - build
+    - PROD_deploy:
+        context: prod-deploy
+        requires:
+          - PROD_approve
 notify:
   webhooks:
   - url: https://webhooks.gitter.im/e/0fdffde721194986f2a0

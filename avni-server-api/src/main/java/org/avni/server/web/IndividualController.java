@@ -3,6 +3,7 @@ package org.avni.server.web;
 import org.avni.server.application.FormMapping;
 import org.avni.server.application.FormType;
 import org.avni.server.dao.*;
+import org.avni.server.dao.sync.SyncEntityName;
 import org.avni.server.domain.*;
 import org.avni.server.domain.accessControl.PrivilegeType;
 import org.avni.server.geo.Point;
@@ -106,9 +107,6 @@ public class IndividualController extends AbstractController<Individual> impleme
     @PreAuthorize(value = "hasAnyAuthority('user')")
     public AvniEntityResponse save(@RequestBody IndividualRequest individualRequest) {
         logger.info(String.format("Saving individual with UUID %s", individualRequest.getUuid()));
-        ObservationCollection observations = observationService.createObservations(individualRequest.getObservations());
-        addObservationsFromDecisions(observations, individualRequest.getDecisions());
-        this.markSubjectMigrationIfRequired(individualRequest, observations);
 
         Individual individual = createIndividual(individualRequest);
 
@@ -155,7 +153,7 @@ public class IndividualController extends AbstractController<Individual> impleme
         if (subjectTypeUuid.isEmpty()) return wrap(new SliceImpl<>(Collections.emptyList()));
         SubjectType subjectType = subjectTypeRepository.findByUuid(subjectTypeUuid);
         if (subjectType == null) return wrap(new SliceImpl<>(Collections.emptyList()));
-        return wrap(scopeBasedSyncService.getSyncResultsBySubjectTypeRegistrationLocationAsSlice(individualRepository, userService.getCurrentUser(), lastModifiedDateTime, now, subjectType.getId(), pageable, subjectType, SyncParameters.SyncEntityName.Individual));
+        return wrap(scopeBasedSyncService.getSyncResultsBySubjectTypeRegistrationLocationAsSlice(individualRepository, userService.getCurrentUser(), lastModifiedDateTime, now, subjectType.getId(), pageable, subjectType, SyncEntityName.Individual));
     }
 
     @GetMapping(value = {"/individual", /*-->Both are Deprecated */ "/individual/search/byCatchmentAndLastModified", "/individual/search/lastModified"})
@@ -168,7 +166,7 @@ public class IndividualController extends AbstractController<Individual> impleme
         if (subjectTypeUuid.isEmpty()) return wrap(new PageImpl<>(Collections.emptyList()));
         SubjectType subjectType = subjectTypeRepository.findByUuid(subjectTypeUuid);
         if (subjectType == null) return wrap(new PageImpl<>(Collections.emptyList()));
-        return wrap(scopeBasedSyncService.getSyncResultsBySubjectTypeRegistrationLocation(individualRepository, userService.getCurrentUser(), lastModifiedDateTime, now, subjectType.getId(), pageable, subjectType, SyncParameters.SyncEntityName.Individual));
+        return wrap(scopeBasedSyncService.getSyncResultsBySubjectTypeRegistrationLocation(individualRepository, userService.getCurrentUser(), lastModifiedDateTime, now, subjectType.getId(), pageable, subjectType, SyncEntityName.Individual));
     }
 
     @GetMapping(value = "/individual/search")
@@ -329,7 +327,8 @@ public class IndividualController extends AbstractController<Individual> impleme
     }
 
     private Individual createIndividual(IndividualRequest individualRequest) {
-
+        Decisions decisions = individualRequest.getDecisions();
+        observationService.validateObservationsAndDecisions(individualRequest.getObservations(), decisions != null ? decisions.getRegistrationDecisions() : null, formMappingService.findForSubject(individualRequest.getSubjectTypeUUID()));
         ObservationCollection observations = observationService.createObservations(individualRequest.getObservations());
         addObservationsFromDecisions(observations, individualRequest.getDecisions());
         this.markSubjectMigrationIfRequired(individualRequest, observations);
@@ -337,13 +336,11 @@ public class IndividualController extends AbstractController<Individual> impleme
         Individual individual = createIndividualWithoutObservations(individualRequest);
         individual.setObservations(observations);
 
-        individualService.save(individual);
-
-
+        Individual savedIndividual = individualService.save(individual);
         saveVisitSchedules(individualRequest);
-        saveIdentifierAssignments(individual, individualRequest);
+        saveIdentifierAssignments(savedIndividual, individualRequest);
 
-        return individual;
+        return savedIndividual;
     }
 
     private Individual createIndividualWithoutObservations(@RequestBody IndividualRequest individualRequest) {
@@ -355,7 +352,7 @@ public class IndividualController extends AbstractController<Individual> impleme
         individual.setFirstName(individualRequest.getFirstName());
         individual.setMiddleName(individualRequest.getMiddleName());
         individual.setLastName(individualRequest.getLastName());
-        if(subjectType.isAllowProfilePicture()) {
+        if (subjectType.isAllowProfilePicture()) {
             individual.setProfilePicture(individualRequest.getProfilePicture());
         }
         individual.setDateOfBirth(individualRequest.getDateOfBirth());

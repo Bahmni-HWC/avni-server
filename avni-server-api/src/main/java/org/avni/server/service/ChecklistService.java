@@ -2,6 +2,7 @@ package org.avni.server.service;
 
 
 import org.avni.server.dao.*;
+import org.avni.server.dao.sync.SyncEntityName;
 import org.avni.server.domain.*;
 import org.avni.server.framework.security.UserContextHolder;
 import org.joda.time.DateTime;
@@ -13,13 +14,13 @@ import javax.transaction.Transactional;
 import java.util.Set;
 
 @Component
-public class ChecklistService implements ScopeAwareService {
-    private ChecklistRepository checklistRepository;
-    private ChecklistItemRepository checklistItemRepository;
+public class ChecklistService implements ScopeAwareService<Checklist> {
+    private final ChecklistRepository checklistRepository;
+    private final ChecklistItemRepository checklistItemRepository;
     private final ChecklistDetailRepository checklistDetailRepository;
 
     @Autowired
-    public ChecklistService(ChecklistRepository checklistRepository, ChecklistItemRepository checklistItemRepository, ProgramEnrolmentRepository programEnrolmentRepository, ChecklistDetailRepository checklistDetailRepository) {
+    public ChecklistService(ChecklistRepository checklistRepository, ChecklistItemRepository checklistItemRepository, ChecklistDetailRepository checklistDetailRepository) {
         this.checklistRepository = checklistRepository;
         this.checklistItemRepository = checklistItemRepository;
         this.checklistDetailRepository = checklistDetailRepository;
@@ -46,11 +47,11 @@ public class ChecklistService implements ScopeAwareService {
         Checklist checklist = checklistRepository.findFirstByChecklistDetail(checklistDetail);
         return checklistDetail != null &&
                 checklist != null &&
-                isChangedBySubjectTypeRegistrationLocationType(user, lastModifiedDateTime, checklistDetail.getId(), checklist.getProgramEnrolment().getIndividual().getSubjectType(), SyncParameters.SyncEntityName.Checklist);
+                isChangedBySubjectTypeRegistrationLocationType(user, lastModifiedDateTime, checklistDetail.getId(), checklist.getProgramEnrolment().getIndividual().getSubjectType(), SyncEntityName.Checklist);
     }
 
     @Override
-    public OperatingIndividualScopeAwareRepository repository() {
+    public OperatingIndividualScopeAwareRepository<Checklist> repository() {
         return checklistRepository;
     }
 }

@@ -21,7 +21,9 @@ public class ResourceProtectionStatus {
             "/index.html",
             "/manifest.json",
             "/precache-manifest*",
-            "/service-worker.js"
+            "/service-worker.js",
+            "/ping",
+            "/web/media"
     );
 
     public static boolean isProtected(HttpServletRequest request) {
@@ -29,6 +31,14 @@ public class ResourceProtectionStatus {
     }
 
     public static boolean isUnProtected(HttpServletRequest request) {
-        return UnprotectedResources.stream().anyMatch(pattern -> new AntPathRequestMatcher(pattern).matches(request));
+        return UnprotectedResources.stream().anyMatch(pattern -> matches(request, pattern));
+    }
+
+    private static boolean matches(HttpServletRequest request, String pattern) {
+        return new AntPathRequestMatcher(pattern).matches(request);
+    }
+
+    public static boolean isPresentIn(HttpServletRequest request, List<String> blacklistedUrls) {
+        return blacklistedUrls.stream().anyMatch(pattern -> matches(request, pattern));
     }
 }

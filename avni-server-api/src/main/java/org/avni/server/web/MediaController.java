@@ -8,6 +8,7 @@ import org.avni.server.framework.security.UserContextHolder;
 import org.avni.server.service.S3Service;
 import org.avni.server.service.accessControl.AccessControlService;
 import org.avni.server.util.AvniFiles;
+import org.avni.server.web.util.ErrorBodyBuilder;
 import org.avni.server.web.validation.ValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,11 +38,13 @@ public class MediaController {
     private final Logger logger;
     private final S3Service s3Service;
     private final AccessControlService accessControlService;
+    private final ErrorBodyBuilder errorBodyBuilder;
 
     @Autowired
-    public MediaController(S3Service s3Service, AccessControlService accessControlService) {
+    public MediaController(S3Service s3Service, AccessControlService accessControlService, ErrorBodyBuilder errorBodyBuilder) {
         this.s3Service = s3Service;
         this.accessControlService = accessControlService;
+        this.errorBodyBuilder = errorBodyBuilder;
         logger = LoggerFactory.getLogger(this.getClass());
     }
 
@@ -59,10 +62,10 @@ public class MediaController {
             return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body(url.toString());
         } catch (AccessDeniedException e) {
             logger.error(e.getMessage());
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorBodyBuilder.getErrorMessageBody(e));
         } catch (Exception e) {
             logger.error(e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(e));
         }
     }
 
@@ -103,26 +106,25 @@ public class MediaController {
             return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body(s3Service.generateMediaDownloadUrl(url).toString());
         } catch (AccessDeniedException e) {
             logger.error(e.getMessage());
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorBodyBuilder.getErrorMessageBody(e));
         } catch (Exception e) {
             logger.error(e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(e));
         }
     }
 
+    //unprotected endpoint
     @RequestMapping(value = "/web/media", method = RequestMethod.GET)
     public void downloadFile(@RequestParam String url, HttpServletRequest request, HttpServletResponse response) throws UnsupportedEncodingException {
-
         User user = UserContextHolder.getUser();
         if (user == null) {
             String originalUrl = format("/web/media?url=%s", request.getParameter("url"));
             String redirectUrl = format("/?redirect_url=%s", URLEncoder.encode(originalUrl, "UTF-8"));
             response.setHeader("Location", redirectUrl);
-            response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
         } else {
             response.setHeader("Location", s3Service.generateMediaDownloadUrl(url).toString());
-            response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
         }
+        response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
     }
 
     @PostMapping("/web/uploadMedia")
@@ -137,9 +139,8 @@ public class MediaController {
             URL s3FileUrl = s3Service.uploadImageFile(tempSourceFile, targetFilePath);
             return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body(s3FileUrl.toString());
         } catch (Exception e) {
-            logger.error(format("Media upload failed.  file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()));
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(format("Unable to upload media. %s", e.getMessage()));
+            logger.error(format("Media upload failed.  file:'%s', user:'%s'", file.getOriginalFilename(), user.getUsername()), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(format("Unable to upload media. %s", e.getMessage())));
         }
     }
 
@@ -166,7 +167,7 @@ public class MediaController {
             return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body(s3FileUrl.toString());
         } catch (Exception e) {
             logger.error(format("Image upload failed. bucketName: '%s' file:'%s', user:'%s'", bucketName, file.getOriginalFilename(), user.getUsername()), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(format("Unable to save Image. %s", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBodyBuilder.getErrorBody(format("Unable to save Image. %s", e.getMessage())));
         }
     }
 

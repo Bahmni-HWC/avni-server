@@ -18,6 +18,8 @@ plugins {
 }
 
 ext { springBootVersion = '2.0.0.RELEASE' }
+//todo: Remove when upgrading Spring version. This was introduced to use SameSiteCookies
+ext['tomcat.version'] = '9.0.80'
 
 apply plugin: 'java'
 apply plugin: 'org.springframework.boot'
@@ -67,6 +69,7 @@ dependencies {
     compile 'com.amazonaws:aws-java-sdk-s3'
     compile 'com.amazonaws:aws-java-sdk-cognitoidp'
     compile 'commons-validator:commons-validator:1.4.1'
+    compile 'org.passay:passay:1.6.3'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'org.keycloak:keycloak-spring-boot-starter:21.0.2'
     implementation 'org.keycloak:keycloak-admin-client:21.0.2'
@@ -75,12 +78,16 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.12.6'
     implementation 'com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:2.12.6'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-joda:2.12.6'
+    implementation 'org.hibernate:hibernate-ehcache:5.2.14.Final'
+    implementation 'javax.cache:cache-api:1.1.1'
     dev "org.springframework.boot:spring-boot-devtools:${springBootVersion}"
     testCompile "org.mockito:mockito-core:2.23.4"
     testCompile 'org.powermock:powermock-core:2.0.9'
     testCompile 'org.powermock:powermock-api-mockito2:2.0.9'
     testCompile 'org.powermock:powermock-module-junit4:2.0.9'
     runtime("org.springframework.boot:spring-boot-properties-migrator")
+    implementation 'org.apache.tika:tika-core:2.7.0'
+    compile 'org.owasp.encoder:encoder:1.2.3'
 }
 
 bootRun {

@@ -6,6 +6,7 @@ import org.avni.messaging.service.PhoneNumberNotAvailableOrIncorrectException;
 import org.avni.server.application.*;
 import org.avni.server.common.Messageable;
 import org.avni.server.dao.*;
+import org.avni.server.dao.sync.SyncEntityName;
 import org.avni.server.domain.*;
 import org.avni.server.domain.accessControl.PrivilegeType;
 import org.avni.server.domain.individualRelationship.IndividualRelation;
@@ -36,7 +37,7 @@ import java.util.stream.Stream;
 
 
 @Service
-public class IndividualService implements ScopeAwareService {
+public class IndividualService implements ScopeAwareService<Individual> {
     public static final String PHONE_NUMBER_FOR_SUBJECT_ID = "phoneNumberForSubjectId";
     private final IndividualRepository individualRepository;
     private final ObservationService observationService;
@@ -341,7 +342,7 @@ public class IndividualService implements ScopeAwareService {
     public boolean isScopeEntityChanged(DateTime lastModifiedDateTime, String subjectTypeUUID) {
         SubjectType subjectType = subjectTypeRepository.findByUuid(subjectTypeUUID);
         User user = UserContextHolder.getUserContext().getUser();
-        return subjectType != null && isChangedBySubjectTypeRegistrationLocationType(user, lastModifiedDateTime, subjectType.getId(), subjectType, SyncParameters.SyncEntityName.Individual);
+        return subjectType != null && isChangedBySubjectTypeRegistrationLocationType(user, lastModifiedDateTime, subjectType.getId(), subjectType, SyncEntityName.Individual);
     }
 
     @Override
@@ -434,5 +435,9 @@ public class IndividualService implements ScopeAwareService {
         return phoneNumberConcept.isPresent()
             ? individualRepository.findByConceptWithMatchingPattern(phoneNumberConcept.get(), "%" + phoneNumber)
             : Optional.empty();
+    }
+
+    public IndividualRepository getIndividualRepository() {
+        return individualRepository;
     }
 }

@@ -14,37 +14,47 @@ public class RequestUtils {
     public static ObservationCollection createObservations(Map<String, Object> observationsRequest, ConceptRepository conceptRepository) {
         Map<String, Object> observations = new HashMap<>();
         for (Map.Entry<String, Object> entry : observationsRequest.entrySet()) {
-            String conceptName = entry.getKey();
-            Concept concept = conceptRepository.findByName(conceptName);
-            if (concept == null) {
-                throw new NullPointerException(String.format("Concept with name=%s not found", conceptName));
-            }
-            String conceptUUID = concept.getUuid();
-            String conceptDataType = concept.getDataType();
-            Object obsValue;
-            Object entryValue = entry.getValue();
-
-            if (entryValue == null) continue; //Ignore null values as in Avni there is no difference between null value and non-existence of an observation
-
-            obsValue = getObsValue(conceptRepository, conceptDataType, entryValue);
-            observations.put(conceptUUID, obsValue);
+            putObservation(conceptRepository, observations, entry);
         }
         return new ObservationCollection(observations);
     }
 
-    private static Object getObsValue(ConceptRepository conceptRepository, String conceptDataType, Object entryValue) {
+    public static void patchObservations(Map<String, Object> observationsRequest, ConceptRepository conceptRepository, ObservationCollection observations) {
+        for (Map.Entry<String, Object> entry : observationsRequest.entrySet()) {
+            putObservation(conceptRepository, observations, entry);
+        }
+    }
+
+    private static void putObservation(ConceptRepository conceptRepository, Map<String, Object> observations, Map.Entry<String, Object> entry) {
+        String conceptName = entry.getKey();
+        Concept concept = conceptRepository.findByName(conceptName);
+        if (concept == null) {
+            throw new NullPointerException(String.format("Concept with name=%s not found", conceptName));
+        }
+        String conceptUUID = concept.getUuid();
+        String conceptDataType = concept.getDataType();
+        Object entryValue = entry.getValue();
+
+        if (entryValue != null) {
+            observations.put(conceptUUID, getObsValue(conceptRepository, conceptDataType, entryValue));
+        } else {
+            observations.remove(conceptUUID);
+        }
+    }
+
+    private static Object getObsValue(ConceptRepository conceptRepository, String conceptDataType, Object newValue) {
         Object obsValue;
         switch (ConceptDataType.valueOf(conceptDataType)) {
             case Coded: {
-                if (entryValue instanceof Collection<?>) {
-                    obsValue = ((List<String>) entryValue).stream().map(answerConceptName -> {
+                if (newValue instanceof Collection<?>) {
+                    obsValue = ((List<String>) newValue).stream().map(answerConceptName -> {
                         Concept answerConcept = conceptRepository.findByName(answerConceptName);
                         if (answerConcept == null)
                             throw new BadRequestError(String.format("Answer concept with name=%s not found", answerConceptName));
                         return answerConcept.getUuid();
                     }).collect(Collectors.toList());
                 } else {
-                    String answerConceptName = (String) entryValue;
+                    String answerConceptName = (String) newValue;
                     Concept answerConcept = conceptRepository.findByName(answerConceptName);
                     if (answerConcept == null)
                         throw new BadRequestError(String.format("Answer concept with name=%s not found", answerConceptName));
@@ -53,22 +63,22 @@ public class RequestUtils {
                 break;
             }
             case QuestionGroup: {
-                if (entryValue instanceof Collection<?>) {
+                if (newValue instanceof Collection<?>) {
                     List<ObservationCollection> groupOfChildObservations = new ArrayList<>();
-                    for (Object o : ((Collection<?>) entryValue)) {
+                    for (Object o : ((Collection<?>) newValue)) {
                         Map<String, Object> childObsCollection = (Map<String, Object>) o;
                         ObservationCollection childObservations = createObservations(childObsCollection, conceptRepository);
                         groupOfChildObservations.add(childObservations);
                     }
                     obsValue = groupOfChildObservations;
                 } else {
-                    Map<String, Object> childObsCollection = (Map<String, Object>) entryValue;
+                    Map<String, Object> childObsCollection = (Map<String, Object>) newValue;
                     obsValue = createObservations(childObsCollection, conceptRepository);
                 }
                 break;
             }
             default: {
-                obsValue = entryValue;
+                obsValue = newValue;
                 break;
             }
         }

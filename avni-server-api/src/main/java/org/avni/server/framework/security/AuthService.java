@@ -1,6 +1,7 @@
 package org.avni.server.framework.security;
 
 import com.auth0.jwk.SigningKeyNotFoundException;
+import com.auth0.jwt.exceptions.TokenExpiredException;
 import org.avni.server.dao.AccountAdminRepository;
 import org.avni.server.dao.OrganisationRepository;
 import org.avni.server.dao.UserRepository;
@@ -48,12 +49,21 @@ public class AuthService {
         IAMAuthService iamAuthService = idpServiceFactory.getAuthService();
         UserContext userContext;
         try {
-            userContext = changeUser(iamAuthService.getUserFromToken(authToken), organisationUUID);
-        } catch (SigningKeyNotFoundException signingKeyNotFoundException) {
-            throw new AvniNoUserSessionException(signingKeyNotFoundException);
+            User userFromToken = iamAuthService.getUserFromToken(authToken);
+            userContext = changeUser(userFromToken, organisationUUID);
+        } catch (SigningKeyNotFoundException | TokenExpiredException exception) {
+            throw new AvniNoUserSessionException(exception);
         }
         userContext.setAuthToken(authToken);
         return userContext;
+    }
+
+    public UserContext tryAuthenticateByToken(String authToken, String organisationUUID) {
+        try {
+            return this.authenticateByToken(authToken, organisationUUID);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     public UserContext authenticateByUserId(Long userId, String organisationUUID) {

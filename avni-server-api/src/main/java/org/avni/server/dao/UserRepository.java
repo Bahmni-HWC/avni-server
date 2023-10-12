@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.PagingAndSortingRepository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
@@ -20,18 +21,23 @@ import org.springframework.stereotype.Repository;
 import org.joda.time.DateTime;
 
 import javax.persistence.EntityNotFoundException;
+import javax.persistence.QueryHint;
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 import javax.persistence.criteria.Root;
 import java.util.List;
 import java.util.Optional;
 
+import static org.avni.server.domain.User.DEFAULT_SUPER_ADMIN;
+
 @Repository
 @RepositoryRestResource(collectionResourceRel = "user", path = "user")
-public interface UserRepository extends PagingAndSortingRepository<User, Long>, JpaSpecificationExecutor<User> {
+public interface UserRepository extends AvniJpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
+    @QueryHints({@QueryHint(name = org.hibernate.jpa.QueryHints.HINT_CACHEABLE, value = "true")})
     User findByUsername(String username);
 
+    @QueryHints({@QueryHint(name = org.hibernate.jpa.QueryHints.HINT_CACHEABLE, value = "true")})
     User findByUuid(String uuid);
 
     Optional<User> findById(Long id);
@@ -49,13 +55,13 @@ public interface UserRepository extends PagingAndSortingRepository<User, Long>, 
     List<UserWebProjection> findAllByOrganisationIdAndIsVoidedFalse(Long organisationId);
 
     @Query(value = "SELECT u FROM User u left join u.accountAdmin as aa " +
-            "where u.isVoided = false and " +
-            "(((:organisationIds) is not null and u.organisationId in (:organisationIds) and u.isOrgAdmin = true) or aa.account.id in (:accountIds)) " +
+            "where u.isVoided = false " +
+            "and (aa.account.id in (:accountIds)) " +
             "and (:username is null or u.username like %:username%) " +
             "and (:name is null or u.name like %:name%) " +
             "and (:email is null or u.email like %:email%) " +
             "and (:phoneNumber is null or u.phoneNumber like %:phoneNumber%)")
-    Page<User> findAccountAndOrgAdmins(String username, String name, String email, String phoneNumber, List<Long> accountIds, List<Long> organisationIds, Pageable pageable);
+    Page<User> findAccountAndOrgAdmins(String username, String name, String email, String phoneNumber, List<Long> accountIds, Pageable pageable);
 
     @Query(value = "SELECT u FROM User u left join u.accountAdmin as aa " +
             "where u.id=:id and u.isVoided = false and " +
@@ -126,4 +132,11 @@ public interface UserRepository extends PagingAndSortingRepository<User, Long>, 
         Boolean aBoolean = this.hasAll(userId);
         return aBoolean != null && aBoolean;
     }
+
+    default User getDefaultSuperAdmin() {
+        return this.findByUuid(DEFAULT_SUPER_ADMIN);
+    }
+
+    @Query(value = "select * from users where lower(users.settings->>'idPrefix') = lower(:prefix) and id <> :exceptUserId", nativeQuery = true)
+    List<User> getUsersWithSameIdPrefix(String prefix, long exceptUserId);
 }
